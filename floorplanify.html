@@ -142,6 +142,10 @@
 
     if (state.showGrid) renderGrid(svg);
     for (const w of state.walls) renderWall(svg, w, { interactive: true });
+    for (const w of state.walls) {
+      renderCorner(svg, w.a, w);
+      renderCorner(svg, w.b, w);
+    }
     if (state.inProgress) {
       renderWall(svg, { a: state.inProgress.from, b: state.inProgress.to }, { preview: true });
     }
@@ -206,6 +210,24 @@
     }
   }
 
+  function renderCorner(svg, p, w) {
+    // Draw a small hit-target circle around each corner (only when labels are on, to keep editor clean)
+    if (!state.showLabels) return;
+    const isSelected = state.selection
+      && state.selection.type === 'corner'
+      && state.selection.wallId === w.id
+      && state.selection.end === (p === w.a ? 'a' : 'b');
+    const r = isSelected ? 6 : 4;
+    const c = svgEl('circle', {
+      cx: p.x * state.zoom, cy: p.y * state.zoom, r,
+      fill: isSelected ? 'var(--corner)' : '#fff',
+      stroke: 'var(--corner)', 'stroke-width': 1.5,
+      'data-corner-wall': w.id,
+      'data-corner-end': p === w.a ? 'a' : 'b',
+    });
+    svg.appendChild(c);
+  }
+
   window.__floorplanify = { state, lengthCm, formatLength, snapCm, pointToSegment, render };
 
   // --- interaction: click-to-place ---
@@ -219,11 +241,52 @@
 
   const svg = document.getElementById('canvas');
 
-  svg.addEventListener('mousemove', (evt) => {
-    if (!state.inProgress) return;
-    state.inProgress.to = clientToCm(evt);
+  function hitCorner(p) {
+    const tol = 8 / state.zoom;
+    for (const w of state.walls) {
+      for (const end of ['a', 'b']) {
+        const ep = w[end];
+        if (Math.hypot(ep.x - p.x, ep.y - p.y) < tol) {
+          return { wall: w, end, pos: { x: ep.x, y: ep.y } };
+        }
+      }
+    }
+    return null;
+  }
+
+  function findWallsAt(pos) {
+    // Walls whose a or b endpoint is at this exact position (round 1 = no T-junctions, max 2 walls)
+    return state.walls.filter(w =>
+      (w.a.x === pos.x && w.a.y === pos.y) ||
+      (w.b.x === pos.x && w.b.y === pos.y)
+    );
+  }
+
+  let dragCorner = null; // { pos, walls: [{w, end}] }
+  svg.addEventListener('mousedown', (evt) => {
+    if (evt.button !== 0) return;
+    const p = clientToCm(evt);
+    const hit = hitCorner(p);
+    if (!hit) return;
+    state.selection = { type: 'corner', wallId: hit.wall.id, end: hit.end, pos: hit.pos };
+    dragCorner = { origPos: { ...hit.pos }, walls: findWallsAt(hit.pos).map(w => ({
+      w, end: (w.a.x === hit.pos.x && w.a.y === hit.pos.y) ? 'a' : 'b',
+    })) };
     render();
   });
+  svg.addEventListener('mousemove', (evt) => {
+    if (dragCorner) {
+      const p = clientToCm(evt);
+      for (const { w, end } of dragCorner.walls) {
+        w[end] = { x: p.x, y: p.y };
+      }
+      render();
+    } else if (state.inProgress) {
+      state.inProgress.to = clientToCm(evt);
+      render();
+    }
+  });
+  document.addEventListener('mouseup', () => { dragCorner = null; });
 
   function hitWall(p) {
     const tol = 6 / state.zoom;                            // 6 px tolerance
