@@ -472,6 +472,114 @@
       svg.style.position = ''; svg.style.left = ''; svg.style.top = '';
     }, 200);
   });
+
+  function buildPrintSvg(bb) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('xmlns', SVG_NS);
+    svg.setAttribute('viewBox',
+      (bb.x * state.zoom) + ' ' + (bb.y * state.zoom) + ' ' +
+      (bb.w * state.zoom) + ' ' + (bb.h * state.zoom));
+
+    if (state.showGrid) {
+      const defs = document.createElementNS(SVG_NS, 'defs');
+      const pattern = document.createElementNS(SVG_NS, 'pattern');
+      const minor = state.snap * state.zoom;
+      const major = state.snap * 10 * state.zoom;
+      pattern.setAttribute('id', 'cmgrid');
+      pattern.setAttribute('width', minor);
+      pattern.setAttribute('height', minor);
+      pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+      const p1 = document.createElementNS(SVG_NS, 'path');
+      p1.setAttribute('d', 'M ' + minor + ' 0 L 0 0 0 ' + minor);
+      p1.setAttribute('stroke', '#e8e8e8'); p1.setAttribute('fill', 'none');
+      const p2 = document.createElementNS(SVG_NS, 'path');
+      p2.setAttribute('d', 'M ' + major + ' 0 L 0 0 0 ' + major);
+      p2.setAttribute('stroke', '#b8b8b8'); p2.setAttribute('fill', 'none');
+      pattern.appendChild(p1); pattern.appendChild(p2);
+      defs.appendChild(pattern);
+      svg.appendChild(defs);
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', bb.x * state.zoom);
+      rect.setAttribute('y', bb.y * state.zoom);
+      rect.setAttribute('width',  bb.w * state.zoom);
+      rect.setAttribute('height', bb.h * state.zoom);
+      rect.setAttribute('fill', 'url(#cmgrid)');
+      svg.appendChild(rect);
+    }
+
+    for (const w of state.walls) {
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', w.a.x * state.zoom);
+      line.setAttribute('y1', w.a.y * state.zoom);
+      line.setAttribute('x2', w.b.x * state.zoom);
+      line.setAttribute('y2', w.b.y * state.zoom);
+      line.setAttribute('stroke', '#111');
+      line.setAttribute('stroke-width', 2);
+      svg.appendChild(line);
+      if (state.showLabels) {
+        const cm = lengthCm(w);
+        if (cm > 0) {
+          const mx = (w.a.x + w.b.x) / 2, my = (w.a.y + w.b.y) / 2;
+          const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+          const len = Math.hypot(dx, dy);
+          const px = -dy / len, py = dx / len;
+          const offsetCm = 12 / state.zoom;
+          const text = document.createElementNS(SVG_NS, 'text');
+          text.setAttribute('x', (mx + px * offsetCm) * state.zoom);
+          text.setAttribute('y', (my + py * offsetCm) * state.zoom);
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('dominant-baseline', 'middle');
+          text.setAttribute('font-size', 12);
+          text.setAttribute('fill', '#111');
+          text.setAttribute('stroke', '#fff');
+          text.setAttribute('stroke-width', 3);
+          text.setAttribute('paint-order', 'stroke fill');
+          text.textContent = formatLength(cm, state.units);
+          svg.appendChild(text);
+        }
+      }
+    }
+    return svg;
+  }
+
+  document.getElementById('exportPng').addEventListener('click', () => {
+    const bb = boundingBox();
+    const landscape = bb.w >= bb.h;
+    const pageW = landscape ? 29.7 : 21;
+    const pageH = landscape ? 21   : 29.7;
+    const fit = autoShrink(bb, pageW, pageH, state.scale);
+
+    const svg = buildPrintSvg(bb);
+    svg.setAttribute('width',  fit.paperW + 'cm');
+    svg.setAttribute('height', fit.paperH + 'cm');
+    const xml = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const DPI = 300;
+      const cmToInch = 1 / 2.54;
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(pageW * cmToInch * DPI);
+      canvas.height = Math.round(pageH * cmToInch * DPI);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img,
+        Math.round(((pageW - fit.paperW) / 2) * cmToInch * DPI),
+        Math.round(((pageH - fit.paperH) / 2) * cmToInch * DPI),
+        Math.round(fit.paperW  * cmToInch * DPI),
+        Math.round(fit.paperH  * cmToInch * DPI));
+      canvas.toBlob((b) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = (state.projectName || 'floorplan').replace(/[^a-z0-9-_]+/gi, '_') + '.png';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    };
+    img.src = url;
+  });
 })();
 </script>
 </body>
