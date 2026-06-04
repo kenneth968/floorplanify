@@ -414,6 +414,64 @@
     state.showLabels = e.target.checked;
     render();
   });
+
+  function boundingBox() {
+    if (state.walls.length === 0) return { x: 0, y: 0, w: 1000, h: 800 };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const w of state.walls) {
+      minX = Math.min(minX, w.a.x, w.b.x);
+      minY = Math.min(minY, w.a.y, w.b.y);
+      maxX = Math.max(maxX, w.a.x, w.b.x);
+      maxY = Math.max(maxY, w.a.y, w.b.y);
+    }
+    return { x: minX - 100, y: minY - 100, w: (maxX - minX) + 200, h: (maxY - minY) + 200 };
+  }
+
+  function autoShrink(bb, pageW, pageH, targetScale) {
+    const series = [50, 75, 100, 150, 200];
+    let chosen = series[series.length - 1];
+    for (const s of series) {
+      if (s < targetScale) continue;
+      const paperW = bb.w / s, paperH = bb.h / s;
+      if (paperW <= pageW - 2 && paperH <= pageH - 2) { chosen = s; break; }
+      chosen = s;
+    }
+    const paperW = bb.w / chosen, paperH = bb.h / chosen;
+    return { paperW, paperH, actualScale: chosen };
+  }
+
+  function updateTitleBlock(actualScale) {
+    document.getElementById('titleName').textContent = state.projectName || 'Untitled';
+    document.getElementById('titleScale').textContent =
+      'Scale 1:' + actualScale + (actualScale !== state.scale ? ' (auto)' : '');
+    document.getElementById('titleDate').textContent = new Date().toISOString().slice(0, 10);
+  }
+
+  document.getElementById('exportPdf').addEventListener('click', () => {
+    const bb = boundingBox();
+    const landscape = bb.w >= bb.h;
+    const [pageW, pageH] = landscape ? [29.7, 21] : [21, 29.7];
+    const fit = autoShrink(bb, pageW, pageH, state.scale);
+    updateTitleBlock(fit.actualScale);
+
+    const svg = document.getElementById('canvas');
+    svg.setAttribute('viewBox',
+      (bb.x * state.zoom) + ' ' + (bb.y * state.zoom) + ' ' +
+      (bb.w * state.zoom) + ' ' + (bb.h * state.zoom));
+    svg.style.width  = fit.paperW  + 'cm';
+    svg.style.height = fit.paperH  + 'cm';
+    svg.style.position = 'absolute';
+    svg.style.left = ((pageW - fit.paperW) / 2) + 'cm';
+    svg.style.top  = ((pageH - fit.paperH) / 2) + 'cm';
+
+    window.print();
+
+    setTimeout(() => {
+      svg.removeAttribute('viewBox');
+      svg.style.width = ''; svg.style.height = '';
+      svg.style.position = ''; svg.style.left = ''; svg.style.top = '';
+    }, 200);
+  });
 })();
 </script>
 </body>
