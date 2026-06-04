@@ -122,9 +122,9 @@
 
   function formatLength(cm, units) {
     if (units === 'cm') return Math.round(cm) + ' cm';
-    if (units === 'm')  return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
+    if (units === 'm')  return (cm / 100).toFixed(2) + ' m';
     if (cm < 100) return Math.round(cm) + ' cm';
-    return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
+    return (cm / 100).toFixed(2) + ' m';
   }
 
   function snapCm(px, snap) { return Math.round(px / snap) * snap; }
@@ -473,12 +473,14 @@
     }, 200);
   });
 
-  function buildPrintSvg(bb) {
+  function buildPrintSvg(bb, actualScale) {
+    // Expand the viewBox vertically to include a title-block strip below the floorplan
+    const titleStrip = 60;  // px reserved below the floorplan for the title block
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('xmlns', SVG_NS);
     svg.setAttribute('viewBox',
       (bb.x * state.zoom) + ' ' + (bb.y * state.zoom) + ' ' +
-      (bb.w * state.zoom) + ' ' + (bb.h * state.zoom));
+      (bb.w * state.zoom) + ' ' + ((bb.h * state.zoom) + titleStrip));
 
     if (state.showGrid) {
       const defs = document.createElementNS(SVG_NS, 'defs');
@@ -539,6 +541,29 @@
         }
       }
     }
+    // Title block (separator + text) below the floorplan
+    const titleY = (bb.y + bb.h) * state.zoom + 20;  // 20 px below the floorplan
+    const sep = document.createElementNS(SVG_NS, 'line');
+    sep.setAttribute('x1', bb.x * state.zoom);
+    sep.setAttribute('y1', titleY);
+    sep.setAttribute('x2', (bb.x + bb.w) * state.zoom);
+    sep.setAttribute('y2', titleY);
+    sep.setAttribute('stroke', '#999'); sep.setAttribute('stroke-width', 0.5);
+    svg.appendChild(sep);
+    const titleText = (state.projectName || 'Untitled')
+      + '  -  Scale 1:' + actualScale
+      + (actualScale !== state.scale ? ' (auto)' : '')
+      + '  -  ' + new Date().toISOString().slice(0, 10)
+      + '  -  Drawn with Floorplanify';
+    const text = document.createElementNS(SVG_NS, 'text');
+    text.setAttribute('x', (bb.x + bb.w / 2) * state.zoom);
+    text.setAttribute('y', titleY + 20);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', 10);
+    text.setAttribute('fill', '#333');
+    text.textContent = titleText;
+    svg.appendChild(text);
+
     return svg;
   }
 
@@ -549,7 +574,7 @@
     const pageH = landscape ? 21   : 29.7;
     const fit = autoShrink(bb, pageW, pageH, state.scale);
 
-    const svg = buildPrintSvg(bb);
+    const svg = buildPrintSvg(bb, fit.actualScale);
     svg.setAttribute('width',  fit.paperW + 'cm');
     svg.setAttribute('height', fit.paperH + 'cm');
     const xml = new XMLSerializer().serializeToString(svg);
