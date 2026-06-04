@@ -5,128 +5,308 @@
 <title>Floorplanify</title>
 <style>
   :root {
-    --grid-minor: #e8e8e8;
-    --grid-major: #b8b8b8;
+    --grid-minor: #ececec;
+    --grid-major: #c4c4c4;
     --wall: #111;
+    --wall-ext: #000;
+    --wall-part: #555;
     --wall-selected: #2266dd;
     --corner: #2266dd;
+    --room-fill: rgba(255, 230, 150, 0.35);
+    --room-stroke: #b58900;
+    --room-label: #6a4d00;
+    --door: #2266dd;
+    --window: #1a8a4a;
     --label: #111;
     --label-halo: #fff;
-    --toolbar-bg: #f5f5f5;
-    --toolbar-border: #ccc;
+    --toolbar-bg: #f7f7f7;
+    --toolbar-border: #d0d0d0;
+    --status-bg: #1f1f1f;
+    --status-fg: #ddd;
+    --accent: #2266dd;
+    --danger: #c0392b;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; font: 14px/1.4 system-ui, sans-serif; }
-  #toolbar {
-    position: fixed; top: 8px; left: 8px; z-index: 10;
-    background: var(--toolbar-bg);
-    border: 1px solid var(--toolbar-border);
-    border-radius: 6px;
-    padding: 8px;
-    display: flex; gap: 8px; align-items: center;
-    flex-wrap: wrap; max-width: calc(100vw - 16px);
-  }
-  #toolbar label { display: flex; gap: 4px; align-items: center; }
-  #toolbar input[type="text"] { width: 200px; }
-  #canvas-wrap { position: fixed; inset: 0; cursor: crosshair; }
-  #canvas { width: 100%; height: 100%; display: block; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #222; }
+  body { display: flex; flex-direction: column; }
 
-  /* Print: A4 vector PDF */
+  #toolbar {
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--toolbar-border);
+    padding: 6px 8px;
+    display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
+    flex-shrink: 0;
+  }
+  #toolbar .group {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 6px;
+    border-right: 1px solid var(--toolbar-border);
+  }
+  #toolbar .group:last-child { border-right: none; }
+  #toolbar .group-title {
+    font-size: 10px; text-transform: uppercase; color: #888;
+    margin-right: 2px; letter-spacing: 0.5px;
+  }
+  #toolbar label { display: inline-flex; gap: 4px; align-items: center; }
+  #toolbar input[type="text"] { width: 200px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }
+  #toolbar select, #toolbar button {
+    padding: 3px 8px; border: 1px solid #ccc; border-radius: 3px;
+    background: white; cursor: pointer; font: inherit;
+  }
+  #toolbar button { background: #fafafa; }
+  #toolbar button:hover { background: #eef3ff; border-color: var(--accent); }
+  #toolbar button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  #toolbar button.danger { color: var(--danger); }
+  #toolbar .tool-btn { min-width: 32px; }
+
+  #canvas-wrap { flex: 1 1 auto; position: relative; cursor: crosshair; overflow: hidden; }
+  #canvas { width: 100%; height: 100%; display: block; background: #fafafa; user-select: none; }
+  body.tool-pan #canvas { cursor: grab; }
+  body.tool-pan.panning #canvas { cursor: grabbing; }
+  body.tool-select #canvas { cursor: default; }
+  body.tool-wall #canvas, body.tool-room #canvas, body.tool-door #canvas, body.tool-window #canvas { cursor: crosshair; }
+
+  #statusbar {
+    background: var(--status-bg); color: var(--status-fg);
+    padding: 4px 10px; font-size: 12px; font-variant-numeric: tabular-nums;
+    display: flex; gap: 16px; flex-shrink: 0;
+  }
+  #statusbar .sep { color: #555; }
+  #statusbar .right { margin-left: auto; }
+  #statusbar kbd {
+    background: #333; color: #eee; padding: 0 4px; border-radius: 2px; font-size: 11px;
+  }
+
+  #help {
+    position: fixed; right: 8px; top: 60px; z-index: 5;
+    background: rgba(255,255,255,0.95);
+    border: 1px solid var(--toolbar-border); border-radius: 4px;
+    padding: 8px 10px; font-size: 11px; max-width: 240px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  #help summary { font-weight: 600; cursor: pointer; }
+  #help kbd { background: #eee; padding: 0 4px; border-radius: 2px; font-family: monospace; }
+  #help[open] { padding-bottom: 10px; }
+  #help ul { margin: 4px 0; padding-left: 16px; }
+  #help li { margin: 1px 0; }
+
   @page { size: A4; margin: 0; }
   @media print {
     body { background: white; }
-    #toolbar { display: none; }
-    #canvas-wrap { position: static; }
-    #canvas { width: 21cm; height: 29.7cm; }
-    .print-only { display: block; }
-  }
-  .print-only { display: none; }
-  #titleBlock {
-    position: fixed; bottom: 0.5cm; left: 0.5cm; right: 0.5cm;
-    font-size: 10pt; color: #333;
-    border-top: 0.5pt solid #999; padding-top: 4pt;
+    #toolbar, #statusbar, #help, #print-container { display: none !important; }
+    body.printing #canvas-wrap { display: none !important; }
+    body.printing #print-container { display: block !important; }
   }
 </style>
 </head>
-<body>
+<body class="tool-wall">
+
 <div id="toolbar">
-  <label>Project <input type="text" id="projectName" value="Untitled floorplan"></label>
-  <label>Scale
-    <select id="scale">
-      <option value="50">1:50</option>
-      <option value="100">1:100</option>
-      <option value="200">1:200</option>
-    </select>
-  </label>
-  <label>Units
-    <select id="units">
-      <option value="auto">auto</option>
-      <option value="cm">cm</option>
-      <option value="m">m</option>
-    </select>
-  </label>
-  <label>Snap
-    <select id="snap">
+  <div class="group">
+    <span class="group-title">File</span>
+    <input type="text" id="projectName" value="Untitled floorplan" title="Project name">
+    <button id="saveJson" title="Save floor plan as JSON file">Save</button>
+    <button id="loadJson" title="Load floor plan from JSON file">Load</button>
+    <input type="file" id="loadJsonInput" accept="application/json" style="display:none">
+  </div>
+
+  <div class="group">
+    <span class="group-title">Tool</span>
+    <button class="tool-btn" data-tool="select" title="Select / move (V)">&#8598;</button>
+    <button class="tool-btn" data-tool="wall"  title="Draw wall (W)">&#9634;</button>
+    <button class="tool-btn" data-tool="room"  title="Draw room, get area (R)">&#9635;</button>
+    <button class="tool-btn" data-tool="door"  title="Place door on wall (D)">&#8976;</button>
+    <button class="tool-btn" data-tool="window" title="Place window on wall (N)">&#9707;</button>
+    <button class="tool-btn" data-tool="pan"   title="Pan (H or hold Space)">&#10021;</button>
+    <button class="tool-btn" data-tool="measure" title="Measure (M)">&#10236;</button>
+  </div>
+
+  <div class="group">
+    <span class="group-title">Snap</span>
+    <select id="snap" title="Snap grid spacing">
       <option value="1">1 cm</option>
       <option value="5">5 cm</option>
       <option value="10" selected>10 cm</option>
+      <option value="25">25 cm</option>
       <option value="50">50 cm</option>
       <option value="100">1 m</option>
     </select>
-  </label>
-  <label><input type="checkbox" id="showGrid" checked> Grid</label>
-  <label><input type="checkbox" id="showLabels" checked> Labels</label>
-  <button id="undo">Undo</button>
-  <button id="clear">Clear</button>
-  <button id="exportPdf">Export PDF</button>
-  <button id="exportPng">Export PNG</button>
+    <label title="Constrain to 0/90 deg (Shift)"><input type="checkbox" id="ortho"> Ortho</label>
+    <label title="Constrain to 0/45/90 deg (Alt)"><input type="checkbox" id="angle45"> 45 deg</label>
+  </div>
+
+  <div class="group">
+    <span class="group-title">View</span>
+    <label><input type="checkbox" id="showGrid" checked> Grid</label>
+    <label><input type="checkbox" id="showLabels" checked> Wall labels</label>
+    <label><input type="checkbox" id="showRooms" checked> Room areas</label>
+    <label><input type="checkbox" id="showNorth" checked> North arrow</label>
+    <button id="zoomFit" title="Zoom to fit (F)">Fit</button>
+    <button id="zoomIn"  title="Zoom in (+)">+</button>
+    <button id="zoomOut" title="Zoom out (-)">&#8722;</button>
+    <button id="zoom100" title="Actual size 1:1 screen pixels per cm">1:1</button>
+  </div>
+
+  <div class="group">
+    <span class="group-title">Print</span>
+    <select id="scale" title="Print scale">
+      <option value="50">1:50</option>
+      <option value="100" selected>1:100</option>
+      <option value="200">1:200</option>
+    </select>
+    <select id="units" title="Label units">
+      <option value="auto" selected>auto</option>
+      <option value="cm">cm</option>
+      <option value="m">m</option>
+    </select>
+    <button id="exportPdf" title="Export A4 PDF (vector)">PDF</button>
+    <button id="exportPng" title="Export A4 PNG (300 DPI)">PNG</button>
+    <button id="exportSvg" title="Export SVG (vector)">SVG</button>
+  </div>
+
+  <div class="group">
+    <span class="group-title">Edit</span>
+    <button id="undo" title="Undo (Ctrl+Z)">&#8630;</button>
+    <button id="redo" title="Redo (Ctrl+Y)">&#8631;</button>
+    <button id="clear" class="danger" title="Clear all">Clear</button>
+  </div>
 </div>
+
 <div id="canvas-wrap">
-  <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet">
+    <defs id="defs"></defs>
+    <g id="layer-bg"></g>
+    <g id="layer-rooms"></g>
+    <g id="layer-walls"></g>
+    <g id="layer-openings"></g>
+    <g id="layer-overlay"></g>
+  </svg>
 </div>
-<div class="print-only" id="titleBlock">
-  <span id="titleName"></span> &middot; <span id="titleScale"></span> &middot; <span id="titleDate"></span> &middot; Drawn with Floorplanify
+
+<div id="statusbar">
+  <span id="st-cursor">x: 0 cm  y: 0 cm</span>
+  <span class="sep">|</span>
+  <span id="st-tool">Tool: Wall</span>
+  <span class="sep">|</span>
+  <span id="st-zoom">Zoom: 20 px/cm</span>
+  <span class="sep">|</span>
+  <span id="st-stats">0 walls &middot; 0.00 m total</span>
+  <span class="sep">|</span>
+  <span id="st-hint" class="right">Click to start a wall &middot; <kbd>Shift</kbd>=ortho &middot; <kbd>Enter</kbd>=finish &middot; <kbd>Esc</kbd>=cancel</span>
 </div>
+
+<details id="help">
+  <summary>Keyboard shortcuts</summary>
+  <ul>
+    <li><kbd>V</kbd> Select &nbsp; <kbd>W</kbd> Wall &nbsp; <kbd>R</kbd> Room &nbsp; <kbd>D</kbd> Door &nbsp; <kbd>N</kbd> Window &nbsp; <kbd>H</kbd> Pan &nbsp; <kbd>M</kbd> Measure</li>
+    <li><kbd>Shift</kbd> Constrain ortho &nbsp; <kbd>Alt</kbd> Constrain 45 deg</li>
+    <li><kbd>Enter</kbd> / <kbd>dbl-click</kbd> Finish chain &nbsp; <kbd>Esc</kbd> Cancel / deselect</li>
+    <li><kbd>Del</kbd> / <kbd>Backspace</kbd> Remove selection</li>
+    <li><kbd>Ctrl+Z</kbd> Undo &nbsp; <kbd>Ctrl+Y</kbd> / <kbd>Ctrl+Shift+Z</kbd> Redo</li>
+    <li><kbd>+</kbd> / <kbd>-</kbd> Zoom &nbsp; <kbd>F</kbd> Fit &nbsp; <kbd>0</kbd> 1:1</li>
+    <li><kbd>Arrow keys</kbd> Nudge selected by 1 snap (Shift = 10x)</li>
+    <li><kbd>Ctrl+A</kbd> Select all walls &nbsp; <kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd> Copy / paste</li>
+    <li><kbd>Ctrl+S</kbd> Save JSON &nbsp; <kbd>Space</kbd> (hold) Pan</li>
+  </ul>
+</details>
+
 <script>
 (function () {
   'use strict';
 
-  // --- state ---
+  // === STATE ===
   const state = {
-    scale: 50,                      // print scale: 1:N
-    units: 'auto',                  // 'auto' | 'cm' | 'm'
-    snap: 10,                       // cm: 1, 5, 10, 50, 100
-    zoom: 20,                       // editor: pixelsPerCm
+    tool: 'wall',
+    scale: 100,
+    units: 'auto',
+    snap: 10,
+    zoom: 20,
+    pan: { x: 0, y: 0 },
     showGrid: true,
     showLabels: true,
+    showRooms: true,
+    showNorth: true,
     projectName: 'Untitled floorplan',
-    walls: [],                      // [{ id, a:{x,y}, b:{x,y} }, ...]
+    walls: [],
+    rooms: [],
+    openings: [],
     nextId: 1,
-    selection: null,                // { type: 'wall'|'corner', id?, pos? } or null
-    inProgress: null,               // { from:{x,y}, to:{x,y} } or null
+    selection: null,
+    multiSel: new Set(),
+    inProgress: null,
+    cursor: { x: 0, y: 0 },
+    spaceDown: false,
+    ortho: false,
+    angle45: false,
+    measureStart: null,
+    measureEnd: null,
+    clipboard: null,
   };
 
+  const svg = document.getElementById('canvas');
+  const gDefs     = document.getElementById('defs');
+  const gBg       = document.getElementById('layer-bg');
+  const gRooms    = document.getElementById('layer-rooms');
+  const gWalls    = document.getElementById('layer-walls');
+  const gOpenings = document.getElementById('layer-openings');
+  const gOverlay  = document.getElementById('layer-overlay');
+
+  // === UNDO / REDO ===
   const undoStack = [];
+  const redoStack = [];
   function snapshot() {
-    undoStack.push(JSON.stringify({
+    undoStack.push(currentSnap());
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function currentSnap() {
+    return JSON.stringify({
       walls: state.walls,
+      rooms: state.rooms,
+      openings: state.openings,
       nextId: state.nextId,
-      selection: state.selection,
-      inProgress: state.inProgress,
-    }));
-    if (undoStack.length > 100) undoStack.shift();
+    });
+  }
+  function restore(snap) {
+    const s = JSON.parse(snap);
+    state.walls = s.walls;
+    state.rooms = s.rooms || [];
+    state.openings = s.openings || [];
+    state.nextId = s.nextId;
+    state.selection = null;
+    state.multiSel.clear();
+    state.inProgress = null;
+    state.measureStart = null;
+    state.measureEnd = null;
+    render();
+  }
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(currentSnap());
+    restore(undoStack.pop());
+  }
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(currentSnap());
+    restore(redoStack.pop());
   }
 
-  // --- pure helpers (testable in console) ---
+  // === GEOMETRY HELPERS ===
   function lengthCm(w) { return Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y); }
+  function ptEq(a, b) { return Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5; }
+  function clonePt(p) { return { x: p.x, y: p.y }; }
+  function newId() { return 'w' + (state.nextId++); }
 
   function formatLength(cm, units) {
     if (units === 'cm') return Math.round(cm) + ' cm';
-    if (units === 'm')  return (cm / 100).toFixed(2) + ' m';
+    if (units === 'm')  return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
     if (cm < 100) return Math.round(cm) + ' cm';
-    return (cm / 100).toFixed(2) + ' m';
+    return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
   }
-
+  function formatArea(cm2) {
+    if (cm2 < 10000) return Math.round(cm2 / 100) / 100 + ' m²';
+    return Math.round(cm2 / 10000 * 100) / 100 + ' m²';
+  }
   function snapCm(px, snap) { return Math.round(px / snap) * snap; }
 
   function pointToSegment(p, a, b) {
@@ -137,447 +317,1169 @@
     t = Math.max(0, Math.min(1, t));
     return Math.hypot(p.x - (a.x + t*dx), p.y - (a.y + t*dy));
   }
+  function pointToSegmentT(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy;
+    if (len2 === 0) return 0;
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    return Math.max(0, Math.min(1, t));
+  }
+  function lineLineIntersect(p1, p2, p3, p4) {
+    const d = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+    if (Math.abs(d) < 1e-9) return null;
+    const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / d;
+    const u = -((p1.x - p2.x) * (p1.y - p3.y) - (p1.y - p2.y) * (p1.x - p3.x)) / d;
+    return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y), t: t, u: u };
+  }
+  function polylineArea(pts) {
+    if (pts.length < 3) return 0;
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      s += a.x * b.y - b.x * a.y;
+    }
+    return Math.abs(s) / 2;
+  }
+  function polylineCentroid(pts) {
+    let cx = 0, cy = 0, a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+      const cross = p1.x * p2.y - p2.x * p1.y;
+      cx += (p1.x + p2.x) * cross;
+      cy += (p1.y + p2.y) * cross;
+      a += cross;
+    }
+    a *= 0.5;
+    if (Math.abs(a) < 1e-9) return pts[0];
+    return { x: cx / (6 * a), y: cy / (6 * a) };
+  }
+  function pointInPoly(p, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i].x, yi = pts[i].y;
+      const xj = pts[j].x, yj = pts[j].y;
+      const intersect = ((yi > p.y) !== (yj > p.y)) &&
+        (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+  function constrainPoint(p, from, ortho, angle45) {
+    if (!from) return p;
+    if (angle45) {
+      const dx = p.x - from.x, dy = p.y - from.y;
+      const angle = Math.atan2(dy, dx);
+      const step = Math.PI / 4;
+      const snapped = Math.round(angle / step) * step;
+      const len = Math.hypot(dx, dy);
+      return { x: from.x + Math.cos(snapped) * len, y: from.y + Math.sin(snapped) * len };
+    }
+    if (ortho) {
+      const dx = p.x - from.x, dy = p.y - from.y;
+      if (Math.abs(dx) > Math.abs(dy)) return { x: p.x, y: from.y };
+      return { x: from.x, y: p.y };
+    }
+    return p;
+  }
 
-  // --- SVG helpers ---
+  // === SVG HELPERS ===
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  function svgEl(name, attrs) {
+  function svgEl(name, attrs, text) {
     const el = document.createElementNS(SVG_NS, name);
-    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (attrs) for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (text != null) el.textContent = text;
     return el;
   }
+  function clear(g) { while (g.firstChild) g.removeChild(g.firstChild); }
 
-  // --- render ---
-  function render() {
-    const svg = document.getElementById('canvas');
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-    if (state.showGrid) renderGrid(svg);
-    for (const w of state.walls) renderWall(svg, w, { interactive: true });
-    for (const w of state.walls) {
-      renderCorner(svg, w.a, w);
-      renderCorner(svg, w.b, w);
-    }
-    if (state.inProgress) {
-      renderWall(svg, { a: state.inProgress.from, b: state.inProgress.to }, { preview: true });
-    }
+  // === WALL MUTATIONS ===
+  function addWall(a, b, type) {
+    type = type || 'ext';
+    if (ptEq(a, b)) return null;
+    const w = { id: newId(), a: clonePt(a), b: clonePt(b), type: type };
+    state.walls.push(w);
+    splitExistingAt(a);
+    splitExistingAt(b);
+    return w;
   }
-
-  function renderGrid(svg) {
-    const defs = svgEl('defs');
-    const minor = state.snap * state.zoom;
-    const major = state.snap * 10 * state.zoom;
-    const pattern = svgEl('pattern', {
-      id: 'cmgrid', width: minor, height: minor, patternUnits: 'userSpaceOnUse',
-    });
-    const p1 = svgEl('path', { d: `M ${minor} 0 L 0 0 0 ${minor}`, fill: 'none', stroke: 'var(--grid-minor)', 'stroke-width': 1 });
-    const p2 = svgEl('path', { d: `M ${major} 0 L 0 0 0 ${major}`, fill: 'none', stroke: 'var(--grid-major)', 'stroke-width': 1.5 });
-    pattern.appendChild(p1); pattern.appendChild(p2);
-    defs.appendChild(pattern);
-    svg.appendChild(defs);
-    svg.appendChild(svgEl('rect', {
-      x: -100000, y: -100000, width: 200000, height: 200000, fill: 'url(#cmgrid)',
-    }));
-  }
-
-  function renderWall(svg, w, opts) {
-    opts = opts || {};
-    const isSelected = !opts.preview && state.selection
-      && state.selection.type === 'wall' && state.selection.id === w.id;
-    const stroke = isSelected ? 'var(--wall-selected)' : 'var(--wall)';
-    const strokeWidth = isSelected ? 4 : 2;
-    const lineAttrs = {
-      x1: w.a.x * state.zoom, y1: w.a.y * state.zoom,
-      x2: w.b.x * state.zoom, y2: w.b.y * state.zoom,
-      stroke, 'stroke-width': strokeWidth,
-    };
-    if (opts.preview) {
-      lineAttrs['stroke-dasharray'] = '4 4';
-      lineAttrs['pointer-events'] = 'none';
-    } else if (opts.interactive) {
-      lineAttrs['data-wall-id'] = w.id;
-      lineAttrs.class = 'wall';
-    }
-    svg.appendChild(svgEl('line', lineAttrs));
-
-    if (state.showLabels && !opts.preview) {
-      const cm = lengthCm(w);
-      if (cm > 0) {
-        const mx = (w.a.x + w.b.x) / 2, my = (w.a.y + w.b.y) / 2;
-        const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
-        const len = Math.hypot(dx, dy);
-        const px = -dy / len, py = dx / len;
-        const offsetCm = 12 / state.zoom;
-        const tx = (mx + px * offsetCm) * state.zoom;
-        const ty = (my + py * offsetCm) * state.zoom;
-        const text = svgEl('text', {
-          x: tx, y: ty, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          'font-size': 12, fill: 'var(--label)',
-          stroke: 'var(--label-halo)', 'stroke-width': 3, 'paint-order': 'stroke fill',
-          'pointer-events': 'none',
-        });
-        text.textContent = formatLength(cm, state.units);
-        svg.appendChild(text);
-      }
-    }
-  }
-
-  function renderCorner(svg, p, w) {
-    // Draw a small hit-target circle around each corner (only when labels are on, to keep editor clean)
-    if (!state.showLabels) return;
-    const isSelected = state.selection
-      && state.selection.type === 'corner'
-      && state.selection.wallId === w.id
-      && state.selection.end === (p === w.a ? 'a' : 'b');
-    const r = isSelected ? 6 : 4;
-    const c = svgEl('circle', {
-      cx: p.x * state.zoom, cy: p.y * state.zoom, r,
-      fill: isSelected ? 'var(--corner)' : '#fff',
-      stroke: 'var(--corner)', 'stroke-width': 1.5,
-      'data-corner-wall': w.id,
-      'data-corner-end': p === w.a ? 'a' : 'b',
-    });
-    svg.appendChild(c);
-  }
-
-  window.__floorplanify = { state, lengthCm, formatLength, snapCm, pointToSegment, render };
-
-  // --- interaction: click-to-place ---
-  function clientToCm(evt) {
-    const rect = document.getElementById('canvas').getBoundingClientRect();
-    return {
-      x: snapCm((evt.clientX - rect.left) / state.zoom, state.snap),
-      y: snapCm((evt.clientY - rect.top)  / state.zoom, state.snap),
-    };
-  }
-
-  const svg = document.getElementById('canvas');
-
-  function hitCorner(p) {
-    const tol = 8 / state.zoom;
-    for (const w of state.walls) {
-      for (const end of ['a', 'b']) {
-        const ep = w[end];
-        if (Math.hypot(ep.x - p.x, ep.y - p.y) < tol) {
-          return { wall: w, end, pos: { x: ep.x, y: ep.y } };
+  function splitExistingAt(pos) {
+    const tol = state.snap / 2;
+    for (let i = 0; i < state.walls.length; i++) {
+      const w = state.walls[i];
+      if (ptEq(w.a, pos) || ptEq(w.b, pos)) continue;
+      const d = pointToSegment(pos, w.a, w.b);
+      if (d < tol) {
+        const t = pointToSegmentT(pos, w.a, w.b);
+        if (t < 0.01 || t > 0.99) continue;
+        const newW = { id: newId(), a: clonePt(pos), b: clonePt(w.b), type: w.type };
+        w.b = clonePt(pos);
+        state.walls.push(newW);
+        for (const o of state.openings) {
+          if (o.wallId === w.id) {
+            if (o.t > t) { o.wallId = newW.id; o.t = (o.t - t) / (1 - t); }
+          }
         }
       }
     }
-    return null;
   }
-
-  function findWallsAt(pos) {
-    // Walls whose a or b endpoint is at this exact position (round 1 = no T-junctions, max 2 walls)
+  function wallsAtPoint(pos) {
+    const tol = state.snap / 2;
     return state.walls.filter(w =>
-      (w.a.x === pos.x && w.a.y === pos.y) ||
-      (w.b.x === pos.x && w.b.y === pos.y)
+      Math.hypot(w.a.x - pos.x, w.a.y - pos.y) < tol ||
+      Math.hypot(w.b.x - pos.x, w.b.y - pos.y) < tol
     );
   }
-
-  let dragCorner = null; // { pos, walls: [{w, end}] }
-  svg.addEventListener('mousedown', (evt) => {
-    snapshot();
-    if (evt.button !== 0) return;
-    const p = clientToCm(evt);
-    const hit = hitCorner(p);
-    if (!hit) return;
-    state.selection = { type: 'corner', wallId: hit.wall.id, end: hit.end, pos: hit.pos };
-    dragCorner = { origPos: { ...hit.pos }, walls: findWallsAt(hit.pos).map(w => ({
-      w, end: (w.a.x === hit.pos.x && w.a.y === hit.pos.y) ? 'a' : 'b',
-    })) };
-    render();
-  });
-  svg.addEventListener('mousemove', (evt) => {
-    if (dragCorner) {
-      const p = clientToCm(evt);
-      for (const { w, end } of dragCorner.walls) {
-        w[end] = { x: p.x, y: p.y };
-      }
-      render();
-    } else if (state.inProgress) {
-      state.inProgress.to = clientToCm(evt);
-      render();
-    }
-  });
-  document.addEventListener('mouseup', () => { dragCorner = null; });
-
-  function hitWall(p) {
-    const tol = 6 / state.zoom;                            // 6 px tolerance
-    let best = null, bestD = Infinity;
-    for (const w of state.walls) {
-      const d = pointToSegment(p, w.a, w.b);
-      if (d < tol && d < bestD) { best = w; bestD = d; }
-    }
-    return best;
-  }
-
-  svg.addEventListener('click', (evt) => {
-    snapshot();
-    const p = clientToCm(evt);
-    const hit = hitWall(p);
-    if (hit) {
-      if (state.selection && state.selection.type === 'wall' && state.selection.id === hit.id) {
-        state.selection = null;                            // toggle off
-      } else {
-        state.selection = { type: 'wall', id: hit.id };
-        state.inProgress = null;
-      }
-    } else {
-      // empty canvas: extend (or start) a chain
-      state.selection = null;
-      if (!state.inProgress) {
-        state.inProgress = { from: p, to: p };
-      } else {
-        const w = { id: 'w' + (state.nextId++), a: state.inProgress.from, b: p };
-        if (lengthCm(w) > 0) {
-          state.walls.push(w);
-          state.inProgress = { from: p, to: p };
+  function removeWall(wallId) {
+    const w = state.walls.find(x => x.id === wallId);
+    if (!w) return;
+    state.openings = state.openings.filter(o => o.wallId !== wallId);
+    state.walls = state.walls.filter(x => x.id !== wallId);
+    for (const end of ['a', 'b']) {
+      const p = w[end];
+      const others = state.walls.filter(x => ptEq(x.a, p) || ptEq(x.b, p));
+      if (others.length === 2) {
+        const w1 = others[0], w2 = others[1];
+        const w1Other = ptEq(w1.a, p) ? w1.b : w1.a;
+        const w2Other = ptEq(w2.a, p) ? w2.b : w2.a;
+        const v1x = p.x - w1Other.x, v1y = p.y - w1Other.y;
+        const v2x = w2Other.x - p.x, v2y = w2Other.y - p.y;
+        const cross = v1x * v2y - v1y * v2x;
+        if (Math.abs(cross) < 1e-3) {
+          const newA = clonePt(w1Other);
+          const newB = clonePt(w2Other);
+          for (const o of state.openings) {
+            if (o.wallId === w1.id) o.wallId = w2.id;
+          }
+          state.walls = state.walls.filter(x => x.id !== w1.id && x.id !== w2.id);
+          state.walls.push({ id: newId(), a: newA, b: newB, type: w2.type });
         }
       }
     }
-    render();
-  });
-
-  function finishChain() {
-    if (state.inProgress) { state.inProgress = null; render(); }
-  }
-  svg.addEventListener('dblclick', finishChain);
-  document.addEventListener('keydown', (evt) => {
-    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
-    if (evt.key === 'Enter')      finishChain();
-    else if (evt.key === 'Escape'){ if (state.inProgress) finishChain(); else if (state.selection) { state.selection = null; render(); } }
-  });
-  document.addEventListener('keydown', (evt) => {
-    snapshot();
-    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
-    if (evt.key === 'Delete' || evt.key === 'Backspace') {
-      if (state.selection && state.selection.type === 'wall') {
-        state.walls = state.walls.filter(w => w.id !== state.selection.id);
-        state.selection = null;
-        render();
-      }
-    }
-  });
-
-  function restore(snap) {
-    const s = JSON.parse(snap);
-    state.walls = s.walls;
-    state.nextId = s.nextId;
-    state.selection = s.selection;
-    state.inProgress = s.inProgress;
-    render();
   }
 
-  document.getElementById('undo').addEventListener('click', () => {
-    const last = undoStack.pop();
-    if (last) restore(last);
-  });
+  // === ROOM ===
+  function addRoom(points, name) {
+    if (points.length < 3) return null;
+    const r = { id: 'r' + (state.nextId++), points: points.map(clonePt), name: name || ('Room ' + (state.rooms.length + 1)) };
+    state.rooms.push(r);
+    return r;
+  }
+  function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); }
 
-  document.getElementById('clear').addEventListener('click', () => {
-    if (state.walls.length === 0) return;
-    if (!confirm('Clear the entire floorplan?')) return;
-    snapshot();
-    state.walls = [];
-    state.nextId = 1;
-    state.selection = null;
-    state.inProgress = null;
-    render();
-  });
+  // === OPENINGS ===
+  function addOpening(wallId, t, type) {
+    const o = { id: 'o' + (state.nextId++), wallId: wallId, t: t, type: type, swing: 'left' };
+    state.openings.push(o);
+    return o;
+  }
+  function removeOpening(id) { state.openings = state.openings.filter(o => o.id !== id); }
 
-  document.addEventListener('keydown', (evt) => {
-    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
-    if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'z') {
-      evt.preventDefault();
-      const last = undoStack.pop();
-      if (last) restore(last);
-    }
-  });
-
-  document.getElementById('projectName').addEventListener('input', (e) => {
-    state.projectName = e.target.value;
-  });
-  document.getElementById('scale').addEventListener('change', (e) => {
-    state.scale = parseInt(e.target.value, 10);
-  });
-  document.getElementById('units').addEventListener('change', (e) => {
-    state.units = e.target.value;
-    render();
-  });
-  document.getElementById('snap').addEventListener('change', (e) => {
-    state.snap = parseInt(e.target.value, 10);
-    render();
-  });
-  document.getElementById('showGrid').addEventListener('change', (e) => {
-    state.showGrid = e.target.checked;
-    render();
-  });
-  document.getElementById('showLabels').addEventListener('change', (e) => {
-    state.showLabels = e.target.checked;
-    render();
-  });
-
+  // === COORDINATES ===
+  function clientToCm(evt) {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    return {
+      x: vb.x + (evt.clientX - rect.left) / rect.width  * vb.width,
+      y: vb.y + (evt.clientY - rect.top)  / rect.height * vb.height,
+    };
+  }
+  function applySnap(p) { return { x: snapCm(p.x, state.snap), y: snapCm(p.y, state.snap) }; }
+  function pxPerCm() {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    return rect.width / vb.width;
+  }
   function boundingBox() {
-    if (state.walls.length === 0) return { x: 0, y: 0, w: 1000, h: 800 };
+    const pts = [];
+    for (const w of state.walls) { pts.push(w.a, w.b); }
+    for (const r of state.rooms) for (const p of r.points) pts.push(p);
+    if (pts.length === 0) return { x: 0, y: 0, w: 1000, h: 800 };
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const w of state.walls) {
-      minX = Math.min(minX, w.a.x, w.b.x);
-      minY = Math.min(minY, w.a.y, w.b.y);
-      maxX = Math.max(maxX, w.a.x, w.b.x);
-      maxY = Math.max(maxY, w.a.y, w.b.y);
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     }
-    return { x: minX - 100, y: minY - 100, w: (maxX - minX) + 200, h: (maxY - minY) + 200 };
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
 
-  function autoShrink(bb, pageW, pageH, targetScale) {
-    const series = [50, 75, 100, 150, 200];
-    let chosen = series[series.length - 1];
-    for (const s of series) {
-      if (s < targetScale) continue;
-      const paperW = bb.w / s, paperH = bb.h / s;
-      if (paperW <= pageW - 2 && paperH <= pageH - 2) { chosen = s; break; }
-      chosen = s;
-    }
-    const paperW = bb.w / chosen, paperH = bb.h / chosen;
-    return { paperW, paperH, actualScale: chosen };
+  // === RENDER ===
+  let renderQueued = false;
+  function requestRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      render();
+    });
+  }
+  function render() {
+    // Compute "px equivalent" helpers — text and small features should be
+    // legible at the current viewBox, regardless of zoom.
+    const rect0 = svg.getBoundingClientRect();
+    const vb0 = svg.viewBox.baseVal;
+    const pxPerCm0 = rect0.width / vb0.width;   // screen px per world cm
+    const fs = (px) => px / pxPerCm0;             // convert screen px to cm
+    state._fs = fs;
+    state._px = pxPerCm0;
+    renderGrid();
+    renderRooms();
+    renderWalls();
+    renderOpenings();
+    renderOverlay();
+    updateStatus();
   }
 
-  function updateTitleBlock(actualScale) {
-    document.getElementById('titleName').textContent = state.projectName || 'Untitled';
-    document.getElementById('titleScale').textContent =
-      'Scale 1:' + actualScale + (actualScale !== state.scale ? ' (auto)' : '');
-    document.getElementById('titleDate').textContent = new Date().toISOString().slice(0, 10);
-  }
-
-  document.getElementById('exportPdf').addEventListener('click', () => {
-    const bb = boundingBox();
-    const landscape = bb.w >= bb.h;
-    const [pageW, pageH] = landscape ? [29.7, 21] : [21, 29.7];
-    const fit = autoShrink(bb, pageW, pageH, state.scale);
-    updateTitleBlock(fit.actualScale);
-
-    const svg = document.getElementById('canvas');
-    svg.setAttribute('viewBox',
-      (bb.x * state.zoom) + ' ' + (bb.y * state.zoom) + ' ' +
-      (bb.w * state.zoom) + ' ' + (bb.h * state.zoom));
-    svg.style.width  = fit.paperW  + 'cm';
-    svg.style.height = fit.paperH  + 'cm';
-    svg.style.position = 'absolute';
-    svg.style.left = ((pageW - fit.paperW) / 2) + 'cm';
-    svg.style.top  = ((pageH - fit.paperH) / 2) + 'cm';
-
-    window.print();
-
-    setTimeout(() => {
-      svg.removeAttribute('viewBox');
-      svg.style.width = ''; svg.style.height = '';
-      svg.style.position = ''; svg.style.left = ''; svg.style.top = '';
-    }, 200);
-  });
-
-  function buildPrintSvg(bb, actualScale) {
-    // Expand the viewBox vertically to include a title-block strip below the floorplan
-    const titleStrip = 60;  // px reserved below the floorplan for the title block
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('xmlns', SVG_NS);
-    svg.setAttribute('viewBox',
-      (bb.x * state.zoom) + ' ' + (bb.y * state.zoom) + ' ' +
-      (bb.w * state.zoom) + ' ' + ((bb.h * state.zoom) + titleStrip));
-
+  function renderGrid() {
+    clear(gDefs);
+    clear(gBg);
     if (state.showGrid) {
-      const defs = document.createElementNS(SVG_NS, 'defs');
-      const pattern = document.createElementNS(SVG_NS, 'pattern');
-      const minor = state.snap * state.zoom;
-      const major = state.snap * 10 * state.zoom;
-      pattern.setAttribute('id', 'cmgrid');
-      pattern.setAttribute('width', minor);
-      pattern.setAttribute('height', minor);
-      pattern.setAttribute('patternUnits', 'userSpaceOnUse');
-      const p1 = document.createElementNS(SVG_NS, 'path');
-      p1.setAttribute('d', 'M ' + minor + ' 0 L 0 0 0 ' + minor);
-      p1.setAttribute('stroke', '#e8e8e8'); p1.setAttribute('fill', 'none');
-      const p2 = document.createElementNS(SVG_NS, 'path');
-      p2.setAttribute('d', 'M ' + major + ' 0 L 0 0 0 ' + major);
-      p2.setAttribute('stroke', '#b8b8b8'); p2.setAttribute('fill', 'none');
-      pattern.appendChild(p1); pattern.appendChild(p2);
-      defs.appendChild(pattern);
-      svg.appendChild(defs);
-      const rect = document.createElementNS(SVG_NS, 'rect');
-      rect.setAttribute('x', bb.x * state.zoom);
-      rect.setAttribute('y', bb.y * state.zoom);
-      rect.setAttribute('width',  bb.w * state.zoom);
-      rect.setAttribute('height', bb.h * state.zoom);
-      rect.setAttribute('fill', 'url(#cmgrid)');
-      svg.appendChild(rect);
+      const minor = state.snap;
+      const major = state.snap * 10;
+      const sw1 = state._fs(0.6);
+      const sw2 = state._fs(1.2);
+      const pat = svgEl('pattern', {
+        id: 'cmgrid',
+        width: minor, height: minor,
+        patternUnits: 'userSpaceOnUse',
+      });
+      pat.appendChild(svgEl('path', { d: 'M ' + minor + ' 0 L 0 0 0 ' + minor, fill: 'none', stroke: '#e0e0e0', 'stroke-width': sw1 }));
+      pat.appendChild(svgEl('path', { d: 'M ' + major + ' 0 L 0 0 0 ' + major, fill: 'none', stroke: '#b8b8b8', 'stroke-width': sw2 }));
+      gDefs.appendChild(pat);
+      const vb = svg.viewBox.baseVal;
+      gBg.appendChild(svgEl('rect', {
+        x: vb.x, y: vb.y, width: vb.width, height: vb.height,
+        fill: 'url(#cmgrid)',
+      }));
     }
+    renderOrigin();
+    renderScaleBar();
+    renderNorth();
+  }
+  function renderOrigin() {
+    const L = state._fs(20);
+    const sw = state._fs(1.2);
+    gBg.appendChild(svgEl('line', { x1: -L, y1: 0, x2: L, y2: 0, stroke: '#888', 'stroke-width': sw }));
+    gBg.appendChild(svgEl('line', { x1: 0, y1: -L, x2: 0, y2: L, stroke: '#888', 'stroke-width': sw }));
+  }
+  function renderScaleBar() {
+    const vb = svg.viewBox.baseVal;
+    // Aim for a scale bar that is ~150-200 screen px wide
+    const targetPx = 180;
+    const candidates = [50, 100, 200, 500, 1000, 2000, 5000];  // cm
+    let w = candidates[candidates.length - 1];
+    for (const c of candidates) {
+      if (state._px * c <= targetPx) { w = c; break; }
+    }
+    const h = state._fs(6);
+    const x = vb.x + vb.width - w - state._fs(20);
+    const y = vb.y + vb.height - h - state._fs(20);
+    const g = svgEl('g');
+    g.appendChild(svgEl('rect', { x: x, y: y, width: w, height: h, fill: '#fff', stroke: '#333', 'stroke-width': state._fs(1) }));
+    // tick at midpoint
+    g.appendChild(svgEl('line', { x1: x + w/2, y1: y, x2: x + w/2, y2: y + h, stroke: '#333', 'stroke-width': state._fs(1) }));
+    // end ticks
+    g.appendChild(svgEl('line', { x1: x, y1: y, x2: x, y2: y + h, stroke: '#333', 'stroke-width': state._fs(1) }));
+    g.appendChild(svgEl('line', { x1: x + w, y1: y, x2: x + w, y2: y + h, stroke: '#333', 'stroke-width': state._fs(1) }));
+    const label = svgEl('text', { x: x + w/2, y: y - state._fs(4), 'text-anchor': 'middle', 'font-size': state._fs(12), fill: '#333', 'font-weight': '600' });
+    label.textContent = (w / 100) + ' m';
+    g.appendChild(label);
+    gBg.appendChild(g);
+  }
+  function renderNorth() {
+    if (!state.showNorth) return;
+    const vb = svg.viewBox.baseVal;
+    const cx = vb.x + vb.width - state._fs(40);
+    const cy = vb.y + state._fs(40);
+    const r = state._fs(18);
+    const g = svgEl('g', { transform: 'translate(' + cx + ' ' + cy + ')' });
+    g.appendChild(svgEl('circle', { cx: 0, cy: 0, r: r, fill: '#fff', stroke: '#333', 'stroke-width': state._fs(1.5) }));
+    g.appendChild(svgEl('path', { d: 'M 0 ' + (-r) + ' L ' + state._fs(6) + ' ' + (r * 0.4) + ' L 0 ' + (r * 0.1) + ' L ' + (-state._fs(6)) + ' ' + (r * 0.4) + ' Z', fill: '#333' }));
+    const t = svgEl('text', { x: 0, y: -r - state._fs(3), 'text-anchor': 'middle', 'font-size': state._fs(14), fill: '#333', 'font-weight': '700' });
+    t.textContent = 'N';
+    g.appendChild(t);
+    gBg.appendChild(g);
+  }
 
+  function renderRooms() {
+    clear(gRooms);
+    if (!state.showRooms) return;
+    for (const r of state.rooms) {
+      const area = polylineArea(r.points);
+      const path = svgEl('path', {
+        d: polyPath(r.points),
+        fill: 'rgba(255, 230, 150, 0.30)',
+        stroke: 'rgba(181, 137, 0, 0.7)',
+        'stroke-width': state._fs(1),
+        'stroke-dasharray': '6 3',
+      });
+      gRooms.appendChild(path);
+      const c = polylineCentroid(r.points);
+      const t1 = svgEl('text', {
+        x: c.x, y: c.y - state._fs(6),
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': state._fs(15), fill: '#6a4d00', 'font-weight': '600',
+        stroke: 'rgba(255,255,255,0.95)', 'stroke-width': state._fs(3.5), 'paint-order': 'stroke fill',
+        'data-room-id': r.id,
+      });
+      t1.textContent = r.name;
+      const t2 = svgEl('text', {
+        x: c.x, y: c.y + state._fs(10),
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': state._fs(12), fill: '#6a4d00',
+        stroke: 'rgba(255,255,255,0.95)', 'stroke-width': state._fs(3.5), 'paint-order': 'stroke fill',
+        'data-room-id': r.id,
+      });
+      t2.textContent = formatArea(area);
+      gRooms.appendChild(t1);
+      gRooms.appendChild(t2);
+    }
+  }
+  function polyPath(pts) {
+    let d = 'M ' + pts[0].x + ' ' + pts[0].y;
+    for (let i = 1; i < pts.length; i++) d += ' L ' + pts[i].x + ' ' + pts[i].y;
+    return d + ' Z';
+  }
+
+  function isWallSelected(w) {
+    return (state.selection && state.selection.type === 'wall' && state.selection.id === w.id)
+      || state.multiSel.has(w.id);
+  }
+  function renderWalls() {
+    clear(gWalls);
     for (const w of state.walls) {
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', w.a.x * state.zoom);
-      line.setAttribute('y1', w.a.y * state.zoom);
-      line.setAttribute('x2', w.b.x * state.zoom);
-      line.setAttribute('y2', w.b.y * state.zoom);
-      line.setAttribute('stroke', '#111');
-      line.setAttribute('stroke-width', 2);
-      svg.appendChild(line);
+      const sel = isWallSelected(w);
+      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1);
+      gWalls.appendChild(svgEl('line', {
+        x1: w.a.x, y1: w.a.y, x2: w.b.x, y2: w.b.y,
+        stroke: sel ? '#2266dd' : (w.type === 'part' ? '#666' : '#111'),
+        'stroke-width': state._fs(widthPx),
+        'stroke-linecap': 'butt',
+        'data-wall-id': w.id,
+      }));
       if (state.showLabels) {
         const cm = lengthCm(w);
         if (cm > 0) {
           const mx = (w.a.x + w.b.x) / 2, my = (w.a.y + w.b.y) / 2;
           const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
           const len = Math.hypot(dx, dy);
-          const px = -dy / len, py = dx / len;
-          const offsetCm = 12 / state.zoom;
-          const text = document.createElementNS(SVG_NS, 'text');
-          text.setAttribute('x', (mx + px * offsetCm) * state.zoom);
-          text.setAttribute('y', (my + py * offsetCm) * state.zoom);
-          text.setAttribute('text-anchor', 'middle');
-          text.setAttribute('dominant-baseline', 'middle');
-          text.setAttribute('font-size', 12);
-          text.setAttribute('fill', '#111');
-          text.setAttribute('stroke', '#fff');
-          text.setAttribute('stroke-width', 3);
-          text.setAttribute('paint-order', 'stroke fill');
-          text.textContent = formatLength(cm, state.units);
-          svg.appendChild(text);
+          const nx = -dy / len, ny = dx / len;
+          const offset = state._fs(12);
+          const t = svgEl('text', {
+            x: mx + nx * offset, y: my + ny * offset,
+            'text-anchor': 'middle', 'dominant-baseline': 'middle',
+            'font-size': state._fs(11), fill: '#111',
+            stroke: '#fff', 'stroke-width': state._fs(3), 'paint-order': 'stroke fill',
+            'pointer-events': 'none',
+          });
+          t.textContent = formatLength(cm, state.units);
+          gWalls.appendChild(t);
         }
       }
     }
-    // Title block (separator + text) below the floorplan
-    const titleY = (bb.y + bb.h) * state.zoom + 20;  // 20 px below the floorplan
-    const sep = document.createElementNS(SVG_NS, 'line');
-    sep.setAttribute('x1', bb.x * state.zoom);
-    sep.setAttribute('y1', titleY);
-    sep.setAttribute('x2', (bb.x + bb.w) * state.zoom);
-    sep.setAttribute('y2', titleY);
-    sep.setAttribute('stroke', '#999'); sep.setAttribute('stroke-width', 0.5);
-    svg.appendChild(sep);
-    const titleText = (state.projectName || 'Untitled')
-      + '  -  Scale 1:' + actualScale
-      + (actualScale !== state.scale ? ' (auto)' : '')
-      + '  -  ' + new Date().toISOString().slice(0, 10)
-      + '  -  Drawn with Floorplanify';
-    const text = document.createElementNS(SVG_NS, 'text');
-    text.setAttribute('x', (bb.x + bb.w / 2) * state.zoom);
-    text.setAttribute('y', titleY + 20);
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('font-size', 10);
-    text.setAttribute('fill', '#333');
-    text.textContent = titleText;
-    svg.appendChild(text);
-
-    return svg;
   }
 
-  document.getElementById('exportPng').addEventListener('click', () => {
+  function renderOpenings() {
+    clear(gOpenings);
+    for (const o of state.openings) {
+      const w = state.walls.find(x => x.id === o.wallId);
+      if (!w) continue;
+      const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
+      const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len, uy = dy / len;
+      const nx = -uy, ny = ux;
+      const halfPx = 35;  // opening half-width in screen px
+      const half = state._fs(halfPx);
+      const sw = state._fs(1.8);  // opening stroke
+      const sw2 = state._fs(1);
+      const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
+      gOpenings.appendChild(svgEl('line', {
+        x1: p.x - ux * half, y1: p.y - uy * half,
+        x2: p.x + ux * half, y2: p.y + uy * half,
+        stroke: col, 'stroke-width': sw,
+        'data-opening-id': o.id,
+      }));
+      if (o.type === 'door') {
+        const hingeX = p.x - ux * half, hingeY = p.y - uy * half;
+        const leafEndX = p.x + ux * half, leafEndY = p.y + uy * half;
+        const arcR = 2 * half;
+        const endX = hingeX + nx * arcR, endY = hingeY + ny * arcR;
+        gOpenings.appendChild(svgEl('path', {
+          d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + (o.swing === 'right' ? 1 : 0) + ' ' + endX + ' ' + endY,
+          fill: 'none', stroke: col, 'stroke-width': sw2, 'stroke-dasharray': '3 2',
+        }));
+        gOpenings.appendChild(svgEl('line', {
+          x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY,
+          stroke: col, 'stroke-width': sw,
+        }));
+      } else {
+        const off = state._fs(3);
+        gOpenings.appendChild(svgEl('line', {
+          x1: p.x - ux * half + nx * off, y1: p.y - uy * half + ny * off,
+          x2: p.x + ux * half + nx * off, y2: p.y + uy * half + ny * off,
+          stroke: col, 'stroke-width': sw2,
+        }));
+        gOpenings.appendChild(svgEl('line', {
+          x1: p.x - ux * half - nx * off, y1: p.y - uy * half - ny * off,
+          x2: p.x + ux * half - nx * off, y2: p.y + uy * half - ny * off,
+          stroke: col, 'stroke-width': sw2,
+        }));
+        gOpenings.appendChild(svgEl('line', {
+          x1: p.x - ux * half, y1: p.y - uy * half,
+          x2: p.x + ux * half, y2: p.y + uy * half,
+          stroke: col, 'stroke-width': sw2,
+        }));
+      }
+    }
+  }
+
+  function renderOverlay() {
+    clear(gOverlay);
+    // corner handles
+    for (const w of state.walls) {
+      for (const end of ['a', 'b']) {
+        const p = w[end];
+        const sel = state.selection && state.selection.type === 'corner'
+          && state.selection.wallId === w.id && state.selection.end === end;
+        gOverlay.appendChild(svgEl('circle', {
+          cx: p.x, cy: p.y, r: state._fs(sel ? 6 : 4),
+          fill: sel ? '#2266dd' : '#fff',
+          stroke: '#2266dd', 'stroke-width': state._fs(1.5),
+          'data-corner-wall': w.id,
+          'data-corner-end': end,
+        }));
+      }
+    }
+    // selection halo
+    if (state.selection && state.selection.type === 'wall') {
+      const w = state.walls.find(x => x.id === state.selection.id);
+      if (w) {
+        const pad = state._fs(8);
+        const bb = wallBB(w, pad);
+        gOverlay.appendChild(svgEl('rect', {
+          x: bb.x, y: bb.y, width: bb.w, height: bb.h,
+          fill: 'none', stroke: '#2266dd', 'stroke-width': state._fs(1),
+          'stroke-dasharray': '4 2',
+          'pointer-events': 'none',
+        }));
+      }
+    }
+    if (state.selection && state.selection.type === 'opening') {
+      const o = state.openings.find(x => x.id === state.selection.id);
+      if (o) {
+        const w = state.walls.find(x => x.id === o.wallId);
+        if (w) {
+          const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
+          gOverlay.appendChild(svgEl('circle', { cx: p.x, cy: p.y, r: state._fs(10), fill: 'none', stroke: '#2266dd', 'stroke-width': state._fs(1), 'stroke-dasharray': '3 2' }));
+        }
+      }
+    }
+    if (state.selection && state.selection.type === 'room') {
+      const r = state.rooms.find(x => x.id === state.selection.id);
+      if (r) {
+        const path = svgEl('path', {
+          d: polyPath(r.points),
+          fill: 'none', stroke: '#b58900', 'stroke-width': state._fs(2),
+          'stroke-dasharray': '6 3', 'pointer-events': 'none',
+        });
+        gOverlay.appendChild(path);
+      }
+    }
+    // in-progress
+    if (state.inProgress) {
+      const ip = state.inProgress;
+      if (ip.kind === 'room') {
+        const pts = ip.polyline.slice();
+        if (ip.to) pts.push(ip.to);
+        if (pts.length >= 2) {
+          gOverlay.appendChild(svgEl('path', {
+            d: 'M ' + pts[0].x + ' ' + pts[0].y + pts.slice(1).map(p => ' L ' + p.x + ' ' + p.y).join(''),
+            fill: 'none', stroke: '#b58900', 'stroke-width': state._fs(2.5), 'stroke-dasharray': '8 4',
+          }));
+          gOverlay.appendChild(svgEl('circle', { cx: pts[0].x, cy: pts[0].y, r: state._fs(5), fill: 'none', stroke: '#b58900', 'stroke-width': state._fs(2) }));
+        }
+        if (pts.length >= 3) {
+          const c = polylineCentroid(pts);
+          const t = svgEl('text', {
+            x: c.x, y: c.y, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+            'font-size': state._fs(14), fill: '#6a4d00', 'font-weight': '600',
+            stroke: '#fff', 'stroke-width': state._fs(4), 'paint-order': 'stroke fill',
+            'pointer-events': 'none',
+          });
+          t.textContent = formatArea(polylineArea(pts));
+          gOverlay.appendChild(t);
+        }
+      } else {
+        if (ip.from && ip.to) {
+          gOverlay.appendChild(svgEl('line', {
+            x1: ip.from.x, y1: ip.from.y, x2: ip.to.x, y2: ip.to.y,
+            stroke: '#2266dd', 'stroke-width': state._fs(2.5), 'stroke-dasharray': '8 4',
+          }));
+          const cm = Math.hypot(ip.to.x - ip.from.x, ip.to.y - ip.from.y);
+          const mx = (ip.from.x + ip.to.x) / 2, my = (ip.from.y + ip.to.y) / 2;
+          const dx = ip.to.x - ip.from.x, dy = ip.to.y - ip.from.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0) {
+            const nx = -dy / len, ny = dx / len;
+            const off = state._fs(14);
+            const t = svgEl('text', {
+              x: mx + nx * off, y: my + ny * off, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+              'font-size': state._fs(12), fill: '#2266dd', 'font-weight': '600',
+              stroke: '#fff', 'stroke-width': state._fs(3), 'paint-order': 'stroke fill',
+              'pointer-events': 'none',
+            });
+            t.textContent = formatLength(cm, state.units);
+            gOverlay.appendChild(t);
+          }
+        }
+        if (ip.committed) {
+          for (const seg of ip.committed) {
+            gOverlay.appendChild(svgEl('line', {
+              x1: seg.a.x, y1: seg.a.y, x2: seg.b.x, y2: seg.b.y,
+              stroke: '#2266dd', 'stroke-width': state._fs(2), 'stroke-dasharray': '4 2',
+            }));
+          }
+        }
+        if (ip.from) {
+          gOverlay.appendChild(svgEl('circle', { cx: ip.from.x, cy: ip.from.y, r: state._fs(3.5), fill: '#2266dd' }));
+        }
+      }
+    }
+    // measure
+    if (state.measureStart && state.measureEnd) {
+      const a = state.measureStart, b = state.measureEnd;
+      gOverlay.appendChild(svgEl('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: '#e91e63', 'stroke-width': state._fs(2), 'stroke-dasharray': '5 3' }));
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0) {
+        const nx = -dy / len, ny = dx / len;
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const off = state._fs(14);
+        const t = svgEl('text', {
+          x: mx + nx * off, y: my + ny * off, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': state._fs(13), fill: '#e91e63', 'font-weight': '600',
+          stroke: '#fff', 'stroke-width': state._fs(3), 'paint-order': 'stroke fill',
+        });
+        t.textContent = formatLength(len, state.units);
+        gOverlay.appendChild(t);
+      }
+      gOverlay.appendChild(svgEl('circle', { cx: a.x, cy: a.y, r: state._fs(3.5), fill: '#e91e63' }));
+      gOverlay.appendChild(svgEl('circle', { cx: b.x, cy: b.y, r: state._fs(3.5), fill: '#e91e63' }));
+    }
+    // marquee
+    if (marquee) {
+      const r = normalizeRect(marquee);
+      gOverlay.appendChild(svgEl('rect', {
+        x: r.x, y: r.y, width: r.w, height: r.h,
+        fill: 'rgba(34,102,221,0.10)', stroke: '#2266dd', 'stroke-width': state._fs(1),
+        'stroke-dasharray': '4 2',
+      }));
+    }
+  }
+  function wallBB(w, pad) {
+    return {
+      x: Math.min(w.a.x, w.b.x) - pad,
+      y: Math.min(w.a.y, w.b.y) - pad,
+      w: Math.abs(w.b.x - w.a.x) + 2 * pad,
+      h: Math.abs(w.b.y - w.a.y) + 2 * pad,
+    };
+  }
+  function normalizeRect(r) {
+    return { x: Math.min(r.x, r.x2), y: Math.min(r.y, r.y2), w: Math.abs(r.x2 - r.x), h: Math.abs(r.y2 - r.y) };
+  }
+
+  // === STATUS BAR ===
+  function updateStatus() {
+    document.getElementById('st-cursor').textContent =
+      'x: ' + Math.round(state.cursor.x) + ' cm  y: ' + Math.round(state.cursor.y) + ' cm';
+    document.getElementById('st-tool').textContent = 'Tool: ' + toolName(state.tool);
+    const vb = svg.viewBox.baseVal;
+    document.getElementById('st-zoom').textContent = 'view: ' + Math.round(vb.width) + ' x ' + Math.round(vb.height) + ' cm';
+    const totalCm = state.walls.reduce((s, w) => s + lengthCm(w), 0);
+    document.getElementById('st-stats').textContent =
+      state.walls.length + ' walls · ' + formatLength(totalCm, state.units) + ' total · ' + state.rooms.length + ' rooms · ' + state.openings.length + ' openings';
+    document.getElementById('st-hint').textContent = toolHint(state.tool);
+    document.body.className = 'tool-' + state.tool + (state.spaceDown ? ' tool-pan' : '') + (isPanning ? ' panning' : '');
+  }
+  function toolName(t) {
+    return ({ select: 'Select', wall: 'Wall', room: 'Room', door: 'Door', window: 'Window', pan: 'Pan', measure: 'Measure' })[t] || t;
+  }
+  function toolHint(t) {
+    if (t === 'select') return state.selection || state.multiSel.size ? 'Drag to move · Del to remove · Shift+click for multi' : 'Click a wall or corner to select';
+    if (t === 'wall')  return state.inProgress ? 'Click to add wall · Enter=finish · Esc=cancel' : 'Click to start a wall chain';
+    if (t === 'room')  return state.inProgress ? 'Click to add corner · dbl-click=finish · click first point to close' : 'Click corners to outline a room';
+    if (t === 'door')  return 'Click a wall to place a door';
+    if (t === 'window')return 'Click a wall to place a window';
+    if (t === 'pan')   return 'Drag to pan · release to exit pan';
+    if (t === 'measure') return state.measureStart ? 'Move to second point · click again to clear' : 'Click first point';
+    return '';
+  }
+
+  // === HIT TESTING ===
+  function hitWall(cm) {
+    const tol = 6 / pxPerCm();
+    let best = null, bestD = Infinity;
+    for (const w of state.walls) {
+      const d = pointToSegment(cm, w.a, w.b);
+      if (d < tol && d < bestD) { best = w; bestD = d; }
+    }
+    return best;
+  }
+  function hitCorner(cm) {
+    const tol = 8 / pxPerCm();
+    for (const w of state.walls) {
+      for (const end of ['a', 'b']) {
+        const ep = w[end];
+        if (Math.hypot(ep.x - cm.x, ep.y - cm.y) < tol) {
+          return { wall: w, end: end, pos: clonePt(ep) };
+        }
+      }
+    }
+    return null;
+  }
+  function hitRoom(cm) {
+    for (const r of state.rooms) {
+      if (pointInPoly(cm, r.points)) return r;
+    }
+    return null;
+  }
+  function hitOpening(cm) {
+    const tol = 8 / pxPerCm();
+    for (const o of state.openings) {
+      const w = state.walls.find(x => x.id === o.wallId);
+      if (!w) continue;
+      const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
+      if (Math.hypot(p.x - cm.x, p.y - cm.y) < tol) return o;
+    }
+    return null;
+  }
+
+  // === INTERACTION ===
+  let marquee = null;
+  let dragCorner = null;
+  let dragSelection = null;
+  let isPanning = false;
+  let panOrigin = null;
+
+  function setTool(t) {
+    state.tool = t;
+    state.selection = null;
+    state.multiSel.clear();
+    state.inProgress = null;
+    state.measureStart = null;
+    state.measureEnd = null;
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+    requestRender();
+  }
+
+  function constrainFor(p) {
+    let from = null;
+    if (state.inProgress && state.inProgress.from) from = state.inProgress.from;
+    if (state.tool === 'measure' && state.measureStart) from = state.measureStart;
+    return constrainPoint(p, from, state.ortho, state.angle45);
+  }
+
+  svg.addEventListener('mousemove', (evt) => {
+    const cm = clientToCm(evt);
+    state.cursor = cm;
+    if (dragCorner) {
+      const p = applySnap(constrainFor(cm));
+      for (const it of dragCorner.walls) {
+        it.w[it.end] = clonePt(p);
+      }
+      requestRender();
+      return;
+    }
+    if (dragSelection) {
+      const dx = cm.x - dragSelection.startCm.x;
+      const dy = cm.y - dragSelection.startCm.y;
+      for (const it of dragSelection.originals) {
+        it.w.a = { x: it.origA.x + dx, y: it.origA.y + dy };
+        it.w.b = { x: it.origB.x + dx, y: it.origB.y + dy };
+      }
+      requestRender();
+      return;
+    }
+    if (isPanning) {
+      const dx = evt.clientX - panOrigin.x;
+      const dy = evt.clientY - panOrigin.y;
+      panOrigin = { x: evt.clientX, y: evt.clientY };
+      const rect = svg.getBoundingClientRect();
+      const vb = svg.viewBox.baseVal;
+      const cmPerPxX = vb.width / rect.width;
+      const cmPerPxY = vb.height / rect.height;
+      setViewBox(vb.x - dx * cmPerPxX, vb.y - dy * cmPerPxY, vb.width, vb.height);
+      return;
+    }
+    if (marquee) {
+      marquee.x2 = cm.x;
+      marquee.y2 = cm.y;
+      requestRender();
+      return;
+    }
+    if (state.inProgress) {
+      state.inProgress.to = applySnap(constrainFor(cm));
+      requestRender();
+      return;
+    }
+    if (state.tool === 'measure' && state.measureStart) {
+      state.measureEnd = applySnap(constrainFor(cm));
+      requestRender();
+      return;
+    }
+    updateStatus();
+  });
+
+  svg.addEventListener('mousedown', (evt) => {
+    if (evt.button === 1 || (evt.button === 0 && (state.spaceDown || state.tool === 'pan'))) {
+      evt.preventDefault();
+      isPanning = true;
+      panOrigin = { x: evt.clientX, y: evt.clientY };
+      return;
+    }
+    if (evt.button !== 0) return;
+    const cm = clientToCm(evt);
+    const tool = state.tool;
+
+    if (tool === 'select') {
+      const corner = hitCorner(cm);
+      if (corner) {
+        snapshot();
+        state.selection = { type: 'corner', wallId: corner.wall.id, end: corner.end, pos: clonePt(corner.pos) };
+        state.multiSel.clear();
+        const walls = wallsAtPoint(corner.pos);
+        dragCorner = {
+          origPos: clonePt(corner.pos),
+          walls: walls.map(w => ({ w: w, end: ptEq(w.a, corner.pos) ? 'a' : 'b', origPos: clonePt(corner.pos) })),
+        };
+        requestRender();
+        return;
+      }
+      const op = hitOpening(cm);
+      if (op) {
+        snapshot();
+        state.selection = { type: 'opening', id: op.id };
+        requestRender();
+        return;
+      }
+      const wall = hitWall(cm);
+      if (wall) {
+        snapshot();
+        if (!evt.shiftKey) state.multiSel.clear();
+        state.selection = { type: 'wall', id: wall.id };
+        if (evt.shiftKey) state.multiSel.add(wall.id);
+        const selWalls = collectSelectedWalls();
+        dragSelection = {
+          startCm: cm,
+          originals: selWalls.map(w => ({ kind: 'wall', w: w, origA: clonePt(w.a), origB: clonePt(w.b) })),
+        };
+        requestRender();
+        return;
+      }
+      const room = hitRoom(cm);
+      if (room) {
+        snapshot();
+        state.selection = { type: 'room', id: room.id };
+        requestRender();
+        return;
+      }
+      snapshot();
+      if (!evt.shiftKey) {
+        state.selection = null;
+        state.multiSel.clear();
+      }
+      marquee = { x: cm.x, y: cm.y, x2: cm.x, y2: cm.y };
+      requestRender();
+      return;
+    }
+    if (tool === 'wall') {
+      const corner = hitCorner(cm);
+      let from = corner ? corner.pos : applySnap(constrainFor(cm));
+      snapshot();
+      if (!state.inProgress) {
+        state.inProgress = { kind: 'wall', from: clonePt(from), to: clonePt(from), committed: [] };
+      } else {
+        const to = applySnap(constrainFor(cm));
+        if (!ptEq(state.inProgress.from, to)) {
+          const w = addWall(state.inProgress.from, to, 'ext');
+          if (w) state.inProgress.committed.push({ a: clonePt(w.a), b: clonePt(w.b) });
+          state.inProgress.from = clonePt(to);
+          state.inProgress.to = clonePt(to);
+        }
+      }
+      requestRender();
+      return;
+    }
+    if (tool === 'room') {
+      const p = applySnap(constrainFor(cm));
+      snapshot();
+      if (!state.inProgress) {
+        state.inProgress = { kind: 'room', polyline: [clonePt(p)], to: clonePt(p) };
+      } else {
+        const first = state.inProgress.polyline[0];
+        if (ptEq(first, p) && state.inProgress.polyline.length >= 3) {
+          addRoom(state.inProgress.polyline, 'Room ' + (state.rooms.length + 1));
+          state.inProgress = null;
+        } else {
+          state.inProgress.polyline.push(clonePt(p));
+        }
+      }
+      requestRender();
+      return;
+    }
+    if (tool === 'door' || tool === 'window') {
+      const wall = hitWall(cm);
+      if (wall) {
+        snapshot();
+        const t = pointToSegmentT(cm, wall.a, wall.b);
+        addOpening(wall.id, t, tool);
+        requestRender();
+      }
+      return;
+    }
+    if (tool === 'measure') {
+      const p = applySnap(constrainFor(cm));
+      if (!state.measureStart) {
+        state.measureStart = clonePt(p);
+        state.measureEnd = clonePt(p);
+      } else {
+        state.measureStart = null;
+        state.measureEnd = null;
+      }
+      requestRender();
+      return;
+    }
+  });
+
+  function collectSelectedWalls() {
+    const ids = new Set();
+    if (state.selection && state.selection.id) ids.add(state.selection.id);
+    for (const id of state.multiSel) ids.add(id);
+    return state.walls.filter(w => ids.has(w.id));
+  }
+
+  document.addEventListener('mouseup', () => {
+    if (dragCorner) { dragCorner = null; }
+    if (dragSelection) { dragSelection = null; }
+    if (isPanning) { isPanning = false; }
+    if (marquee) {
+      const r = normalizeRect(marquee);
+      marquee = null;
+      for (const w of state.walls) {
+        if (ptInRect(w.a, r) && ptInRect(w.b, r)) state.multiSel.add(w.id);
+      }
+      requestRender();
+    }
+  });
+  function ptInRect(p, r) {
+    return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+  }
+
+  svg.addEventListener('dblclick', (evt) => {
+    if (state.inProgress) {
+      if (state.inProgress.kind === 'room' && state.inProgress.polyline.length >= 3) {
+        addRoom(state.inProgress.polyline, 'Room ' + (state.rooms.length + 1));
+      }
+      state.inProgress = null;
+      requestRender();
+    }
+  });
+
+  svg.addEventListener('wheel', (evt) => {
+    evt.preventDefault();
+    const factor = evt.deltaY < 0 ? 1.1 : 1 / 1.1;
+    zoomAt(evt.clientX, evt.clientY, factor);
+  }, { passive: false });
+
+  function zoomAt(clientX, clientY, factor) {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const cmX = vb.x + (clientX - rect.left) / rect.width  * vb.width;
+    const cmY = vb.y + (clientY - rect.top)  / rect.height * vb.height;
+    const newW = Math.max(50, Math.min(50000, vb.width / factor));
+    const newH = Math.max(50, Math.min(50000, vb.height / factor));
+    const newX = cmX - (clientX - rect.left) / rect.width  * newW;
+    const newY = cmY - (clientY - rect.top)  / rect.height * newH;
+    setViewBox(newX, newY, newW, newH);
+  }
+  function setViewBox(x, y, w, h) {
+    svg.setAttribute('viewBox', x + ' ' + y + ' ' + w + ' ' + h);
+    state.pan = { x: x, y: y };
+    requestRender();
+  }
+  function zoomFit() {
+    if (state.walls.length === 0 && state.rooms.length === 0) {
+      setViewBox(-500, -400, 1000, 800);
+      return;
+    }
+    const bb = boundingBox();
+    // Extra padding so labels, scale bar, north arrow stay clear of edges
+    const padL = Math.max(bb.w, bb.h) * 0.05;
+    const padR = Math.max(bb.w, bb.h) * 0.05;
+    const padT = Math.max(bb.w, bb.h) * 0.10;
+    const padB = Math.max(bb.w, bb.h) * 0.10;
+    const rect = svg.getBoundingClientRect();
+    const ratio = rect.width / rect.height;
+    const totalW = bb.w + padL + padR;
+    const totalH = bb.h + padT + padB;
+    let w = totalW, h = totalH;
+    if (w / h > ratio) w = h * ratio;
+    else h = w / ratio;
+    setViewBox(bb.x - padL - (w - totalW) / 2,
+               bb.y - padT - (h - totalH) / 2,
+               w, h);
+  }
+  function zoomActual() {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    setViewBox(vb.x, vb.y, rect.width, rect.height);
+  }
+
+  // === KEYBOARD ===
+  document.addEventListener('keydown', (evt) => {
+    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT' || evt.target.tagName === 'TEXTAREA') return;
+
+    if (evt.ctrlKey || evt.metaKey) {
+      if (evt.key.toLowerCase() === 'z' && !evt.shiftKey) { evt.preventDefault(); undo(); return; }
+      if (evt.key.toLowerCase() === 'y' || (evt.key.toLowerCase() === 'z' && evt.shiftKey)) { evt.preventDefault(); redo(); return; }
+      if (evt.key.toLowerCase() === 'a') { evt.preventDefault(); state.walls.forEach(w => state.multiSel.add(w.id)); state.selection = null; requestRender(); return; }
+      if (evt.key.toLowerCase() === 'c') { copySelection(); evt.preventDefault(); return; }
+      if (evt.key.toLowerCase() === 'v') { pasteClipboard(); evt.preventDefault(); return; }
+      if (evt.key.toLowerCase() === 's') { evt.preventDefault(); saveJson(); return; }
+      return;
+    }
+    if (evt.key === 'Shift' && !evt.repeat) { state.ortho = !state.ortho; if (state.ortho) state.angle45 = false; document.getElementById('ortho').checked = state.ortho; document.getElementById('angle45').checked = state.angle45; return; }
+    if (evt.key === 'Alt'  && !evt.repeat) { state.angle45 = !state.angle45; if (state.angle45) state.ortho = false; document.getElementById('angle45').checked = state.angle45; document.getElementById('ortho').checked = state.ortho; return; }
+    if (evt.key === ' ') { state.spaceDown = true; evt.preventDefault(); return; }
+    if (evt.key === 'Escape') {
+      if (state.inProgress) { state.inProgress = null; requestRender(); return; }
+      if (state.measureStart) { state.measureStart = null; state.measureEnd = null; requestRender(); return; }
+      if (state.selection || state.multiSel.size) { state.selection = null; state.multiSel.clear(); requestRender(); return; }
+      setTool('wall');
+      return;
+    }
+    if (evt.key === 'Enter') {
+      if (state.inProgress) {
+        if (state.inProgress.kind === 'room' && state.inProgress.polyline.length >= 3) {
+          addRoom(state.inProgress.polyline, 'Room ' + (state.rooms.length + 1));
+        }
+        state.inProgress = null;
+        requestRender();
+      }
+      return;
+    }
+    if (evt.key === 'Delete' || evt.key === 'Backspace') {
+      if (state.selection || state.multiSel.size) {
+        snapshot();
+        if (state.selection) {
+          if (state.selection.type === 'wall') removeWall(state.selection.id);
+          else if (state.selection.type === 'room') removeRoom(state.selection.id);
+          else if (state.selection.type === 'opening') removeOpening(state.selection.id);
+        }
+        for (const id of state.multiSel) removeWall(id);
+        state.selection = null;
+        state.multiSel.clear();
+        requestRender();
+        return;
+      }
+    }
+    const k = evt.key.toLowerCase();
+    if (k === 'v') setTool('select');
+    else if (k === 'w') setTool('wall');
+    else if (k === 'r') setTool('room');
+    else if (k === 'd') setTool('door');
+    else if (k === 'n') setTool('window');
+    else if (k === 'h') setTool('pan');
+    else if (k === 'm') setTool('measure');
+    else if (k === 'f') zoomFit();
+    else if (k === '0') zoomActual();
+    else if (evt.key === '+' || evt.key === '=') {
+      const r = svg.getBoundingClientRect();
+      zoomAt(r.left + r.width/2, r.top + r.height/2, 1.2);
+    }
+    else if (evt.key === '-') {
+      const r = svg.getBoundingClientRect();
+      zoomAt(r.left + r.width/2, r.top + r.height/2, 1/1.2);
+    }
+    else if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(evt.key)) {
+      const sel = collectSelectedWalls();
+      if (sel.length === 0) return;
+      snapshot();
+      const step = state.snap * (evt.shiftKey ? 10 : 1);
+      const dx = evt.key === 'ArrowLeft' ? -step : evt.key === 'ArrowRight' ? step : 0;
+      const dy = evt.key === 'ArrowUp' ? -step : evt.key === 'ArrowDown' ? step : 0;
+      for (const w of sel) {
+        w.a = { x: w.a.x + dx, y: w.a.y + dy };
+        w.b = { x: w.b.x + dx, y: w.b.y + dy };
+      }
+      requestRender();
+      evt.preventDefault();
+    }
+  });
+  document.addEventListener('keyup', (evt) => {
+    if (evt.key === ' ') state.spaceDown = false;
+  });
+
+  function copySelection() {
+    const sel = collectSelectedWalls();
+    if (sel.length === 0) return;
+    state.clipboard = sel.map(w => ({ a: clonePt(w.a), b: clonePt(w.b), type: w.type }));
+  }
+  function pasteClipboard() {
+    if (!state.clipboard || state.clipboard.length === 0) return;
+    snapshot();
+    const dx = state.snap * 5, dy = state.snap * 5;
+    state.multiSel.clear();
+    for (const c of state.clipboard) {
+      const w = addWall({ x: c.a.x + dx, y: c.a.y + dy }, { x: c.b.x + dx, y: c.b.y + dy }, c.type);
+      if (w) state.multiSel.add(w.id);
+    }
+    requestRender();
+  }
+
+  // === EXPORT ===
+  function autoShrink(bb, pageW, pageH, targetScale) {
+    const series = [50, 75, 100, 150, 200, 300, 500];
+    let chosen = series[series.length - 1];
+    for (const s of series) {
+      const paperW = bb.w / s, paperH = bb.h / s;
+      if (s >= targetScale && paperW <= pageW - 1.5 && paperH <= pageH - 1.5) { chosen = s; break; }
+    }
+    return { paperW: bb.w / chosen, paperH: bb.h / chosen, actualScale: chosen };
+  }
+
+  function buildPrintSvg(bb, actualScale, withGrid) {
+    const s = actualScale;
+    // For print, "screen pixels" = "paper mm". Convert: 1mm paper = (s/100) cm world.
+    // But the SVG world units are cm. To get a stroke of N mm on paper, in cm world use (N/10) * s.
+    const mm = (v) => (v / 10) * s;       // world cm for given paper mm
+    const pt = (v) => (v / 28.35) * s;    // world cm for given paper pt (1pt = 1/72in, 1in=2.54cm, 1cm=28.35pt)
+    function wallStrokeStyle(w) {
+      const sel = isWallSelected(w);
+      const mmVal = w.type === 'part' ? 0.25 : 0.5;
+      return { color: sel ? '#2266dd' : (w.type === 'part' ? '#666' : '#111'),
+               width: mm(mmVal) * (sel ? 1.5 : 1) };
+    }
+    const svgOut = svgEl('svg', {
+      xmlns: SVG_NS,
+      viewBox: bb.x + ' ' + bb.y + ' ' + bb.w + ' ' + (bb.h + 4),
+      width: bb.w + 'cm',
+      height: (bb.h + 4) + 'cm',
+    });
+    if (withGrid) {
+      const defs = svgEl('defs');
+      const pat = svgEl('pattern', { id: 'pgrid', width: state.snap, height: state.snap, patternUnits: 'userSpaceOnUse' });
+      pat.appendChild(svgEl('path', { d: 'M ' + state.snap + ' 0 L 0 0 0 ' + state.snap, fill: 'none', stroke: '#e0e0e0', 'stroke-width': mm(0.15) }));
+      pat.appendChild(svgEl('path', { d: 'M ' + (state.snap * 10) + ' 0 L 0 0 0 ' + (state.snap * 10), fill: 'none', stroke: '#b8b8b8', 'stroke-width': mm(0.3) }));
+      defs.appendChild(pat);
+      svgOut.appendChild(defs);
+      svgOut.appendChild(svgEl('rect', { x: bb.x, y: bb.y, width: bb.w, height: bb.h, fill: 'url(#pgrid)' }));
+    }
+    for (const r of state.rooms) {
+      svgOut.appendChild(svgEl('path', { d: polyPath(r.points), fill: 'rgba(255, 230, 150, 0.30)', stroke: 'rgba(181, 137, 0, 0.7)', 'stroke-width': mm(0.3), 'stroke-dasharray': '1.5 0.8' }));
+      const c = polylineCentroid(r.points);
+      const t1 = svgEl('text', { x: c.x, y: c.y - mm(1.5), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': pt(9), fill: '#6a4d00', 'font-weight': '600', stroke: '#fff', 'stroke-width': mm(0.5), 'paint-order': 'stroke fill' });
+      t1.textContent = r.name;
+      const t2 = svgEl('text', { x: c.x, y: c.y + mm(2.5), 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': pt(7), fill: '#6a4d00', stroke: '#fff', 'stroke-width': mm(0.5), 'paint-order': 'stroke fill' });
+      t2.textContent = formatArea(polylineArea(r.points));
+      svgOut.appendChild(t1); svgOut.appendChild(t2);
+    }
+    for (const w of state.walls) {
+      const ws = wallStrokeStyle(w);
+      svgOut.appendChild(svgEl('line', { x1: w.a.x, y1: w.a.y, x2: w.b.x, y2: w.b.y, stroke: ws.color, 'stroke-width': ws.width, 'stroke-linecap': 'butt' }));
+    }
+    for (const o of state.openings) {
+      const w = state.walls.find(x => x.id === o.wallId);
+      if (!w) continue;
+      const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
+      const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len, uy = dy / len;
+      const nx = -uy, ny = ux;
+      const half = mm(20);  // ~ 2cm opening on paper
+      const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
+      svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.4) }));
+      if (o.type === 'door') {
+        const hingeX = p.x - ux * half, hingeY = p.y - uy * half;
+        const leafEndX = p.x + ux * half, leafEndY = p.y + uy * half;
+        const arcR = 2 * half;
+        const endX = hingeX + nx * arcR, endY = hingeY + ny * arcR;
+        svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + (o.swing === 'right' ? 1 : 0) + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6' }));
+        svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4) }));
+      } else {
+        const off = mm(0.8);
+        svgOut.appendChild(svgEl('line', { x1: p.x - ux * half + nx * off, y1: p.y - uy * half + ny * off, x2: p.x + ux * half + nx * off, y2: p.y + uy * half + ny * off, stroke: col, 'stroke-width': mm(0.3) }));
+        svgOut.appendChild(svgEl('line', { x1: p.x - ux * half - nx * off, y1: p.y - uy * half - ny * off, x2: p.x + ux * half - nx * off, y2: p.y + uy * half - ny * off, stroke: col, 'stroke-width': mm(0.3) }));
+        svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.3) }));
+      }
+    }
+    if (state.showLabels) {
+      for (const w of state.walls) {
+        const cm = lengthCm(w);
+        if (cm === 0) continue;
+        const mx = (w.a.x + w.b.x) / 2, my = (w.a.y + w.b.y) / 2;
+        const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+        const len = Math.hypot(dx, dy);
+        const px = -dy / len, py = dx / len;
+        const off = mm(3.5);
+        const t = svgEl('text', { x: mx + px * off, y: my + py * off, 'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': pt(6.5), fill: '#111', stroke: '#fff', 'stroke-width': mm(0.6), 'paint-order': 'stroke fill' });
+        t.textContent = formatLength(cm, state.units);
+        svgOut.appendChild(t);
+      }
+    }
+    // title block
+    const titleY = bb.y + bb.h + mm(5);
+    svgOut.appendChild(svgEl('line', { x1: bb.x, y1: titleY - mm(2.5), x2: bb.x + bb.w, y2: titleY - mm(2.5), stroke: '#999', 'stroke-width': mm(0.15) }));
+    const text = (state.projectName || 'Untitled') + '  ·  Scale 1:' + s + (s !== state.scale ? ' (auto)' : '') + '  ·  ' + new Date().toISOString().slice(0,10) + '  ·  Drawn with Floorplanify';
+    const tt = svgEl('text', { x: bb.x + bb.w / 2, y: titleY + mm(1.5), 'text-anchor': 'middle', 'font-size': pt(8), fill: '#333' });
+    tt.textContent = text;
+    svgOut.appendChild(tt);
+    // North arrow (top-right of plan, scaled to print)
+    if (state.showNorth) {
+      const ncx = bb.x + bb.w - mm(15);
+      const ncy = bb.y + mm(15);
+      const nr = mm(7);
+      const ng = svgEl('g', { transform: 'translate(' + ncx + ' ' + ncy + ')' });
+      ng.appendChild(svgEl('circle', { cx: 0, cy: 0, r: nr, fill: '#fff', stroke: '#333', 'stroke-width': mm(0.4) }));
+      ng.appendChild(svgEl('path', { d: 'M 0 ' + (-nr) + ' L ' + mm(2.2) + ' ' + (nr * 0.4) + ' L 0 ' + (nr * 0.1) + ' L ' + (-mm(2.2)) + ' ' + (nr * 0.4) + ' Z', fill: '#333' }));
+      const nt = svgEl('text', { x: 0, y: -nr - mm(1), 'text-anchor': 'middle', 'font-size': pt(7), fill: '#333', 'font-weight': '700' });
+      nt.textContent = 'N';
+      ng.appendChild(nt);
+      svgOut.appendChild(ng);
+    }
+    return svgOut;
+  }
+
+  function exportPdf() {
+    const bb = boundingBox();
+    const landscape = bb.w >= bb.h;
+    const [pageW, pageH] = landscape ? [29.7, 21] : [21, 29.7];
+    const fit = autoShrink(bb, pageW, pageH, state.scale);
+    const offX = (pageW - fit.paperW) / 2;
+    const offY = (pageH - fit.paperH) / 2;
+    const svgOut = buildPrintSvg(bb, fit.actualScale, state.showGrid);
+    svgOut.setAttribute('style', 'position:absolute;left:' + offX + 'cm;top:' + offY + 'cm;width:' + fit.paperW + 'cm;height:' + fit.paperH + 'cm;');
+    document.body.appendChild(svgOut);
+    document.body.classList.add('printing');
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('printing');
+        svgOut.remove();
+      }, 300);
+    }, 50);
+  }
+
+  function exportPng() {
     const bb = boundingBox();
     const landscape = bb.w >= bb.h;
     const pageW = landscape ? 29.7 : 21;
     const pageH = landscape ? 21   : 29.7;
     const fit = autoShrink(bb, pageW, pageH, state.scale);
-
-    const svg = buildPrintSvg(bb, fit.actualScale);
-    svg.setAttribute('width',  fit.paperW + 'cm');
-    svg.setAttribute('height', fit.paperH + 'cm');
-    const xml = new XMLSerializer().serializeToString(svg);
+    const svgOut = buildPrintSvg(bb, fit.actualScale, state.showGrid);
+    svgOut.setAttribute('width',  fit.paperW + 'cm');
+    svgOut.setAttribute('height', fit.paperH + 'cm');
+    const xml = new XMLSerializer().serializeToString(svgOut);
     const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const img = new Image();
@@ -590,11 +1492,11 @@
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img,
-        Math.round(((pageW - fit.paperW) / 2) * cmToInch * DPI),
-        Math.round(((pageH - fit.paperH) / 2) * cmToInch * DPI),
-        Math.round(fit.paperW  * cmToInch * DPI),
-        Math.round(fit.paperH  * cmToInch * DPI));
+      const offX = ((pageW - fit.paperW) / 2) * cmToInch * DPI;
+      const offY = ((pageH - fit.paperH) / 2) * cmToInch * DPI;
+      const w = fit.paperW * cmToInch * DPI;
+      const h = (bb.h + 4) * cmToInch * DPI;
+      ctx.drawImage(img, offX, offY, w, h);
       canvas.toBlob((b) => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(b);
@@ -604,7 +1506,130 @@
       }, 'image/png');
     };
     img.src = url;
+  }
+
+  function exportSvg() {
+    const bb = boundingBox();
+    const svgOut = buildPrintSvg(bb, state.scale, state.showGrid);
+    svgOut.setAttribute('width', bb.w + 'cm');
+    svgOut.setAttribute('height', (bb.h + 4) + 'cm');
+    const xml = new XMLSerializer().serializeToString(svgOut);
+    const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (state.projectName || 'floorplan').replace(/[^a-z0-9-_]+/gi, '_') + '.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // === JSON SAVE / LOAD ===
+  function saveJson() {
+    const data = {
+      version: 2,
+      projectName: state.projectName,
+      walls: state.walls,
+      rooms: state.rooms,
+      openings: state.openings,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (state.projectName || 'floorplan').replace(/[^a-z0-9-_]+/gi, '_') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function loadJson(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        state.walls = (data.walls || []).map(w => ({ id: w.id || newId(), a: w.a, b: w.b, type: w.type || 'ext' }));
+        state.rooms = (data.rooms || []).map(r => ({ id: r.id || newId(), points: r.points, name: r.name || 'Room' }));
+        state.openings = (data.openings || []).map(o => ({ id: o.id || newId(), wallId: o.wallId, t: o.t, type: o.type, swing: o.swing || 'left' }));
+        let maxId = 0;
+        const allIds = []
+          .concat(state.walls.map(x => x.id))
+          .concat(state.rooms.map(x => x.id))
+          .concat(state.openings.map(x => x.id));
+        for (const id of allIds) {
+          const n = parseInt(String(id).replace(/\D/g, ''), 10);
+          if (n > maxId) maxId = n;
+        }
+        state.nextId = maxId + 1;
+        if (data.projectName) {
+          state.projectName = data.projectName;
+          document.getElementById('projectName').value = data.projectName;
+        }
+        state.selection = null;
+        state.multiSel.clear();
+        render();
+        zoomFit();
+      } catch (err) {
+        alert('Failed to load JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // === TOOLBAR WIRING ===
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.addEventListener('click', () => setTool(btn.dataset.tool));
   });
+  setTool('wall');
+
+  document.getElementById('projectName').addEventListener('input', (e) => { state.projectName = e.target.value; });
+  document.getElementById('scale').addEventListener('change', (e) => { state.scale = parseInt(e.target.value, 10); });
+  document.getElementById('units').addEventListener('change', (e) => { state.units = e.target.value; requestRender(); });
+  document.getElementById('snap').addEventListener('change',  (e) => { state.snap  = parseInt(e.target.value, 10); requestRender(); });
+  document.getElementById('ortho').addEventListener('change', (e) => { state.ortho = e.target.checked; if (state.ortho) { state.angle45 = false; document.getElementById('angle45').checked = false; } });
+  document.getElementById('angle45').addEventListener('change',(e) => { state.angle45 = e.target.checked; if (state.angle45) { state.ortho = false; document.getElementById('ortho').checked = false; } });
+  document.getElementById('showGrid').addEventListener('change',  (e) => { state.showGrid = e.target.checked; requestRender(); });
+  document.getElementById('showLabels').addEventListener('change',(e) => { state.showLabels = e.target.checked; requestRender(); });
+  document.getElementById('showRooms').addEventListener('change',(e) => { state.showRooms = e.target.checked; requestRender(); });
+  document.getElementById('showNorth').addEventListener('change',(e) => { state.showNorth = e.target.checked; requestRender(); });
+  document.getElementById('undo').addEventListener('click', undo);
+  document.getElementById('redo').addEventListener('click', redo);
+  document.getElementById('clear').addEventListener('click', () => {
+    if (state.walls.length === 0 && state.rooms.length === 0 && state.openings.length === 0) return;
+    if (!confirm('Clear the entire floorplan?')) return;
+    snapshot();
+    state.walls = []; state.rooms = []; state.openings = [];
+    state.nextId = 1;
+    state.selection = null; state.multiSel.clear(); state.inProgress = null;
+    render();
+  });
+  document.getElementById('exportPdf').addEventListener('click', exportPdf);
+  document.getElementById('exportPng').addEventListener('click', exportPng);
+  document.getElementById('exportSvg').addEventListener('click', exportSvg);
+  document.getElementById('zoomFit').addEventListener('click', zoomFit);
+  document.getElementById('zoomIn').addEventListener('click', () => {
+    const r = svg.getBoundingClientRect();
+    zoomAt(r.left + r.width/2, r.top + r.height/2, 1.25);
+  });
+  document.getElementById('zoomOut').addEventListener('click', () => {
+    const r = svg.getBoundingClientRect();
+    zoomAt(r.left + r.width/2, r.top + r.height/2, 1/1.25);
+  });
+  document.getElementById('zoom100').addEventListener('click', zoomActual);
+  document.getElementById('saveJson').addEventListener('click', saveJson);
+  document.getElementById('loadJson').addEventListener('click', () => document.getElementById('loadJsonInput').click());
+  document.getElementById('loadJsonInput').addEventListener('change', (e) => {
+    if (e.target.files[0]) loadJson(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  svg.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Initial render + fit
+  setTimeout(zoomFit, 0);
+  render();
+
+  // expose for console testing
+  window.__floorplanify = {
+    state, lengthCm, formatLength, formatArea, snapCm, pointToSegment,
+    lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
+    addWall, removeWall, addRoom, removeRoom, addOpening, removeOpening,
+    snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool,
+    buildPrintSvg, autoShrink, boundingBox,
+  };
 })();
 </script>
 </body>
