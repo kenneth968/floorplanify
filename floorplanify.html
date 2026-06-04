@@ -88,7 +88,126 @@
   <span id="titleName"></span> &middot; <span id="titleScale"></span> &middot; <span id="titleDate"></span> &middot; Drawn with Floorplanify
 </div>
 <script>
-  // JS will be added in subsequent tasks
+(function () {
+  'use strict';
+
+  // --- state ---
+  const state = {
+    scale: 50,                      // print scale: 1:N
+    units: 'auto',                  // 'auto' | 'cm' | 'm'
+    snap: 10,                       // cm: 1, 5, 10, 50, 100
+    zoom: 20,                       // editor: pixelsPerCm
+    showGrid: true,
+    showLabels: true,
+    projectName: 'Untitled floorplan',
+    walls: [],                      // [{ id, a:{x,y}, b:{x,y} }, ...]
+    nextId: 1,
+    selection: null,                // { type: 'wall'|'corner', id?, pos? } or null
+    inProgress: null,               // { from:{x,y}, to:{x,y} } or null
+  };
+
+  // --- pure helpers (testable in console) ---
+  function lengthCm(w) { return Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y); }
+
+  function formatLength(cm, units) {
+    if (units === 'cm') return Math.round(cm) + ' cm';
+    if (units === 'm')  return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
+    if (cm < 100) return Math.round(cm) + ' cm';
+    return (cm / 100).toFixed(2).replace(/^0+/, '') + ' m';
+  }
+
+  function snapCm(px, snap) { return Math.round(px / snap) * snap; }
+
+  function pointToSegment(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy;
+    if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t*dx), p.y - (a.y + t*dy));
+  }
+
+  // --- SVG helpers ---
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(name, attrs) {
+    const el = document.createElementNS(SVG_NS, name);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  // --- render ---
+  function render() {
+    const svg = document.getElementById('canvas');
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    if (state.showGrid) renderGrid(svg);
+    for (const w of state.walls) renderWall(svg, w, { interactive: true });
+    if (state.inProgress) {
+      renderWall(svg, { a: state.inProgress.from, b: state.inProgress.to }, { preview: true });
+    }
+  }
+
+  function renderGrid(svg) {
+    const defs = svgEl('defs');
+    const minor = state.snap * state.zoom;
+    const major = state.snap * 10 * state.zoom;
+    const pattern = svgEl('pattern', {
+      id: 'cmgrid', width: minor, height: minor, patternUnits: 'userSpaceOnUse',
+    });
+    const p1 = svgEl('path', { d: `M ${minor} 0 L 0 0 0 ${minor}`, fill: 'none', stroke: 'var(--grid-minor)', 'stroke-width': 1 });
+    const p2 = svgEl('path', { d: `M ${major} 0 L 0 0 0 ${major}`, fill: 'none', stroke: 'var(--grid-major)', 'stroke-width': 1.5 });
+    pattern.appendChild(p1); pattern.appendChild(p2);
+    defs.appendChild(pattern);
+    svg.appendChild(defs);
+    svg.appendChild(svgEl('rect', {
+      x: -100000, y: -100000, width: 200000, height: 200000, fill: 'url(#cmgrid)',
+    }));
+  }
+
+  function renderWall(svg, w, opts) {
+    opts = opts || {};
+    const isSelected = !opts.preview && state.selection
+      && state.selection.type === 'wall' && state.selection.id === w.id;
+    const stroke = isSelected ? 'var(--wall-selected)' : 'var(--wall)';
+    const strokeWidth = isSelected ? 4 : 2;
+    const lineAttrs = {
+      x1: w.a.x * state.zoom, y1: w.a.y * state.zoom,
+      x2: w.b.x * state.zoom, y2: w.b.y * state.zoom,
+      stroke, 'stroke-width': strokeWidth,
+    };
+    if (opts.preview) {
+      lineAttrs['stroke-dasharray'] = '4 4';
+      lineAttrs['pointer-events'] = 'none';
+    } else if (opts.interactive) {
+      lineAttrs['data-wall-id'] = w.id;
+      lineAttrs.class = 'wall';
+    }
+    svg.appendChild(svgEl('line', lineAttrs));
+
+    if (state.showLabels && !opts.preview) {
+      const cm = lengthCm(w);
+      if (cm > 0) {
+        const mx = (w.a.x + w.b.x) / 2, my = (w.a.y + w.b.y) / 2;
+        const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+        const len = Math.hypot(dx, dy);
+        const px = -dy / len, py = dx / len;
+        const offsetCm = 12 / state.zoom;
+        const tx = (mx + px * offsetCm) * state.zoom;
+        const ty = (my + py * offsetCm) * state.zoom;
+        const text = svgEl('text', {
+          x: tx, y: ty, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': 12, fill: 'var(--label)',
+          stroke: 'var(--label-halo)', 'stroke-width': 3, 'paint-order': 'stroke fill',
+          'pointer-events': 'none',
+        });
+        text.textContent = formatLength(cm, state.units);
+        svg.appendChild(text);
+      }
+    }
+  }
+
+  window.__floorplanify = { state, lengthCm, formatLength, snapCm, pointToSegment, render };
+})();
 </script>
 </body>
 </html>
