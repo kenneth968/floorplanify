@@ -3,8 +3,92 @@
 <head>
 <meta charset="utf-8">
 <title>Floorplanify</title>
+<style>
+  :root {
+    --grid-minor: #e8e8e8;
+    --grid-major: #b8b8b8;
+    --wall: #111;
+    --wall-selected: #2266dd;
+    --corner: #2266dd;
+    --label: #111;
+    --label-halo: #fff;
+    --toolbar-bg: #f5f5f5;
+    --toolbar-border: #ccc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 14px/1.4 system-ui, sans-serif; }
+  #toolbar {
+    position: fixed; top: 8px; left: 8px; z-index: 10;
+    background: var(--toolbar-bg);
+    border: 1px solid var(--toolbar-border);
+    border-radius: 6px;
+    padding: 8px;
+    display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap; max-width: calc(100vw - 16px);
+  }
+  #toolbar label { display: flex; gap: 4px; align-items: center; }
+  #toolbar input[type="text"] { width: 200px; }
+  #canvas-wrap { position: fixed; inset: 0; cursor: crosshair; }
+  #canvas { width: 100%; height: 100%; display: block; }
+
+  /* Print: A4 vector PDF */
+  @page { size: A4; margin: 0; }
+  @media print {
+    body { background: white; }
+    #toolbar { display: none; }
+    #canvas-wrap { position: static; }
+    #canvas { width: 21cm; height: 29.7cm; }
+    .print-only { display: block; }
+  }
+  .print-only { display: none; }
+  #titleBlock {
+    position: fixed; bottom: 0.5cm; left: 0.5cm; right: 0.5cm;
+    font-size: 10pt; color: #333;
+    border-top: 0.5pt solid #999; padding-top: 4pt;
+  }
+</style>
 </head>
 <body>
-<h1>Floorplanify</h1>
+<div id="toolbar">
+  <label>Project <input type="text" id="projectName" value="Untitled floorplan"></label>
+  <label>Scale
+    <select id="scale">
+      <option value="50">1:50</option>
+      <option value="100">1:100</option>
+      <option value="200">1:200</option>
+    </select>
+  </label>
+  <label>Units
+    <select id="units">
+      <option value="auto">auto</option>
+      <option value="cm">cm</option>
+      <option value="m">m</option>
+    </select>
+  </label>
+  <label>Snap
+    <select id="snap">
+      <option value="1">1 cm</option>
+      <option value="5">5 cm</option>
+      <option value="10" selected>10 cm</option>
+      <option value="50">50 cm</option>
+      <option value="100">1 m</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="showGrid" checked> Grid</label>
+  <label><input type="checkbox" id="showLabels" checked> Labels</label>
+  <button id="undo">Undo</button>
+  <button id="clear">Clear</button>
+  <button id="exportPdf">Export PDF</button>
+  <button id="exportPng">Export PNG</button>
+</div>
+<div id="canvas-wrap">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<div class="print-only" id="titleBlock">
+  <span id="titleName"></span> &middot; <span id="titleScale"></span> &middot; <span id="titleDate"></span> &middot; Drawn with Floorplanify
+</div>
+<script>
+  // JS will be added in subsequent tasks
+</script>
 </body>
 </html>
