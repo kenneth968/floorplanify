@@ -106,6 +106,17 @@
     inProgress: null,               // { from:{x,y}, to:{x,y} } or null
   };
 
+  const undoStack = [];
+  function snapshot() {
+    undoStack.push(JSON.stringify({
+      walls: state.walls,
+      nextId: state.nextId,
+      selection: state.selection,
+      inProgress: state.inProgress,
+    }));
+    if (undoStack.length > 100) undoStack.shift();
+  }
+
   // --- pure helpers (testable in console) ---
   function lengthCm(w) { return Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y); }
 
@@ -264,6 +275,7 @@
 
   let dragCorner = null; // { pos, walls: [{w, end}] }
   svg.addEventListener('mousedown', (evt) => {
+    snapshot();
     if (evt.button !== 0) return;
     const p = clientToCm(evt);
     const hit = hitCorner(p);
@@ -299,6 +311,7 @@
   }
 
   svg.addEventListener('click', (evt) => {
+    snapshot();
     const p = clientToCm(evt);
     const hit = hitWall(p);
     if (hit) {
@@ -334,6 +347,7 @@
     else if (evt.key === 'Escape'){ if (state.inProgress) finishChain(); else if (state.selection) { state.selection = null; render(); } }
   });
   document.addEventListener('keydown', (evt) => {
+    snapshot();
     if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
     if (evt.key === 'Delete' || evt.key === 'Backspace') {
       if (state.selection && state.selection.type === 'wall') {
@@ -341,6 +355,40 @@
         state.selection = null;
         render();
       }
+    }
+  });
+
+  function restore(snap) {
+    const s = JSON.parse(snap);
+    state.walls = s.walls;
+    state.nextId = s.nextId;
+    state.selection = s.selection;
+    state.inProgress = s.inProgress;
+    render();
+  }
+
+  document.getElementById('undo').addEventListener('click', () => {
+    const last = undoStack.pop();
+    if (last) restore(last);
+  });
+
+  document.getElementById('clear').addEventListener('click', () => {
+    if (state.walls.length === 0) return;
+    if (!confirm('Clear the entire floorplan?')) return;
+    snapshot();
+    state.walls = [];
+    state.nextId = 1;
+    state.selection = null;
+    state.inProgress = null;
+    render();
+  });
+
+  document.addEventListener('keydown', (evt) => {
+    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
+    if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'z') {
+      evt.preventDefault();
+      const last = undoStack.pop();
+      if (last) restore(last);
     }
   });
 })();
