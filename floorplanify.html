@@ -207,6 +207,48 @@
   }
 
   window.__floorplanify = { state, lengthCm, formatLength, snapCm, pointToSegment, render };
+
+  // --- interaction: click-to-place ---
+  function clientToCm(evt) {
+    const rect = document.getElementById('canvas').getBoundingClientRect();
+    return {
+      x: snapCm((evt.clientX - rect.left) / state.zoom, state.snap),
+      y: snapCm((evt.clientY - rect.top)  / state.zoom, state.snap),
+    };
+  }
+
+  const svg = document.getElementById('canvas');
+
+  svg.addEventListener('mousemove', (evt) => {
+    if (!state.inProgress) return;
+    state.inProgress.to = clientToCm(evt);
+    render();
+  });
+
+  svg.addEventListener('click', (evt) => {
+    const p = clientToCm(evt);
+    if (state.selection) state.selection = null;            // clear selection on canvas click
+    if (!state.inProgress) {
+      state.inProgress = { from: p, to: p };
+    } else {
+      const w = { id: 'w' + (state.nextId++), a: state.inProgress.from, b: p };
+      if (lengthCm(w) > 0) {
+        state.walls.push(w);
+        state.inProgress = { from: p, to: p };
+      }
+    }
+    render();
+  });
+
+  function finishChain() {
+    if (state.inProgress) { state.inProgress = null; render(); }
+  }
+  svg.addEventListener('dblclick', finishChain);
+  document.addEventListener('keydown', (evt) => {
+    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
+    if (evt.key === 'Enter')      finishChain();
+    else if (evt.key === 'Escape'){ if (state.inProgress) finishChain(); else if (state.selection) { state.selection = null; render(); } }
+  });
 })();
 </script>
 </body>
