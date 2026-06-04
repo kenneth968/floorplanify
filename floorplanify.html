@@ -123,7 +123,7 @@
 
   <div class="group">
     <span class="group-title">Snap</span>
-    <select id="snap" title="Snap grid spacing">
+    <select id="snap" title="Snap grid spacing (cm)">
       <option value="1">1 cm</option>
       <option value="5">5 cm</option>
       <option value="10" selected>10 cm</option>
@@ -131,8 +131,12 @@
       <option value="50">50 cm</option>
       <option value="100">1 m</option>
     </select>
-    <label title="Constrain to 0/90 deg (Shift)"><input type="checkbox" id="ortho"> Ortho</label>
-    <label title="Constrain to 0/45/90 deg (Alt)"><input type="checkbox" id="angle45"> 45 deg</label>
+    <select id="wallType" title="Type of wall to draw. Ext = exterior / load-bearing (thick). Part = partition (thin).">
+      <option value="ext" selected>Ext wall</option>
+      <option value="part">Partition</option>
+    </select>
+    <label title="Constrain new walls to 0° or 90°. Hold Shift while drawing."><input type="checkbox" id="ortho"> Ortho</label>
+    <label title="Constrain new walls to 0°, 45°, or 90°. Hold Alt while drawing."><input type="checkbox" id="angle45"> 45°</label>
   </div>
 
   <div class="group">
@@ -217,6 +221,7 @@
   // === STATE ===
   const state = {
     tool: 'wall',
+    wallType: 'ext',           // 'ext' | 'part' — for newly drawn walls
     scale: 100,
     units: 'auto',
     snap: 10,
@@ -458,11 +463,29 @@
   }
 
   // === ROOM ===
-  function addRoom(points, name) {
+  function addRoom(points, name, wallType) {
     if (points.length < 3) return null;
+    wallType = wallType || state.wallType || 'ext';
+    // For each consecutive pair (and closing pair), add a wall for the edge
+    // if one doesn't already exist. This unifies "drawing a room" with
+    // "drawing the room's walls".
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % n];
+      if (ptEq(a, b)) continue;
+      if (!wallExistsBetween(a, b)) {
+        addWall(a, b, wallType);
+      }
+    }
     const r = { id: 'r' + (state.nextId++), points: points.map(clonePt), name: name || ('Room ' + (state.rooms.length + 1)) };
     state.rooms.push(r);
     return r;
+  }
+  function wallExistsBetween(a, b) {
+    return state.walls.some(w =>
+      (ptEq(w.a, a) && ptEq(w.b, b)) || (ptEq(w.a, b) && ptEq(w.b, a))
+    );
   }
   function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); }
 
@@ -688,9 +711,9 @@
       const len = Math.hypot(dx, dy);
       const ux = dx / len, uy = dy / len;
       const nx = -uy, ny = ux;
-      const halfPx = 35;  // opening half-width in screen px
-      const half = state._fs(halfPx);
-      const sw = state._fs(1.8);  // opening stroke
+      // Real-world opening width: 90cm for door, 60cm for window
+      const half = (o.type === 'door' ? 45 : 30);  // cm world
+      const sw = state._fs(1.8);
       const sw2 = state._fs(1);
       const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
       gOpenings.appendChild(svgEl('line', {
@@ -749,6 +772,16 @@
           'data-corner-end': end,
         }));
       }
+    }
+    // snap indicator at cursor (when in a draw tool)
+    if (state.hoverSnap && (state.inProgress || state.tool === 'wall' || state.tool === 'room' || state.tool === 'measure')) {
+      const p = state.hoverSnap;
+      const r = state._fs(7);
+      gOverlay.appendChild(svgEl('circle', { cx: p.x, cy: p.y, r, fill: 'none', stroke: '#2266dd', 'stroke-width': state._fs(1.5), 'pointer-events': 'none' }));
+      gOverlay.appendChild(svgEl('line', { x1: p.x - r * 1.5, y1: p.y, x2: p.x - r * 0.7, y2: p.y, stroke: '#2266dd', 'stroke-width': state._fs(1.5), 'pointer-events': 'none' }));
+      gOverlay.appendChild(svgEl('line', { x1: p.x + r * 0.7, y1: p.y, x2: p.x + r * 1.5, y2: p.y, stroke: '#2266dd', 'stroke-width': state._fs(1.5), 'pointer-events': 'none' }));
+      gOverlay.appendChild(svgEl('line', { x1: p.x, y1: p.y - r * 1.5, x2: p.x, y2: p.y - r * 0.7, stroke: '#2266dd', 'stroke-width': state._fs(1.5), 'pointer-events': 'none' }));
+      gOverlay.appendChild(svgEl('line', { x1: p.x, y1: p.y + r * 0.7, x2: p.x, y2: p.y + r * 1.5, stroke: '#2266dd', 'stroke-width': state._fs(1.5), 'pointer-events': 'none' }));
     }
     // selection halo
     if (state.selection && state.selection.type === 'wall') {
@@ -822,13 +855,15 @@
           if (len > 0) {
             const nx = -dy / len, ny = dx / len;
             const off = state._fs(14);
+            // length + angle readout
+            const angDeg = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
             const t = svgEl('text', {
               x: mx + nx * off, y: my + ny * off, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
               'font-size': state._fs(12), fill: '#2266dd', 'font-weight': '600',
               stroke: '#fff', 'stroke-width': state._fs(3), 'paint-order': 'stroke fill',
               'pointer-events': 'none',
             });
-            t.textContent = formatLength(cm, state.units);
+            t.textContent = formatLength(cm, state.units) + '  ·  ' + Math.round(angDeg) + '°';
             gOverlay.appendChild(t);
           }
         }
@@ -905,13 +940,21 @@
     return ({ select: 'Select', wall: 'Wall', room: 'Room', door: 'Door', window: 'Window', pan: 'Pan', measure: 'Measure' })[t] || t;
   }
   function toolHint(t) {
-    if (t === 'select') return state.selection || state.multiSel.size ? 'Drag to move · Del to remove · Shift+click for multi' : 'Click a wall or corner to select';
-    if (t === 'wall')  return state.inProgress ? 'Click to add wall · Enter=finish · Esc=cancel' : 'Click to start a wall chain';
-    if (t === 'room')  return state.inProgress ? 'Click to add corner · dbl-click=finish · click first point to close' : 'Click corners to outline a room';
-    if (t === 'door')  return 'Click a wall to place a door';
-    if (t === 'window')return 'Click a wall to place a window';
-    if (t === 'pan')   return 'Drag to pan · release to exit pan';
-    if (t === 'measure') return state.measureStart ? 'Move to second point · click again to clear' : 'Click first point';
+    if (t === 'select') return state.selection || state.multiSel.size
+      ? 'Drag to move · Del to remove · Shift+click for multi-select'
+      : 'Click a wall, corner, or room to select. Drag to move. Shift+click to add to selection.';
+    if (t === 'wall')  return state.inProgress
+      ? 'Click next point to continue the wall chain. Enter or dbl-click to finish. Esc to cancel.'
+      : 'Click to place wall corners (chains together). Enter/dbl-click to finish. Shift=ortho · Alt=45°.';
+    if (t === 'room')  return state.inProgress
+      ? 'Click next corner. Enter or dbl-click to close. Esc to cancel. Walls for the boundary are added automatically.'
+      : 'Click corners to outline a room. The boundary becomes walls and the inside is filled with the area (m²).';
+    if (t === 'door')  return 'Click on a wall to place a door (90 cm wide with swing arc).';
+    if (t === 'window')return 'Click on a wall to place a window.';
+    if (t === 'pan')   return 'Drag to pan. Release to return to previous tool. Space (hold) pans from any tool.';
+    if (t === 'measure') return state.measureStart
+      ? 'Move to second point. Click again to clear.'
+      : 'Click first point. Click second point. Length is shown on the line.';
     return '';
   }
 
@@ -982,6 +1025,9 @@
   svg.addEventListener('mousemove', (evt) => {
     const cm = clientToCm(evt);
     state.cursor = cm;
+    // Track the current snap point for the indicator. Use corner if hovering one.
+    const corner = hitCorner(cm);
+    state.hoverSnap = corner ? corner.pos : applySnap(constrainFor(cm));
     if (dragCorner) {
       const p = applySnap(constrainFor(cm));
       for (const it of dragCorner.walls) {
@@ -1101,7 +1147,7 @@
       } else {
         const to = applySnap(constrainFor(cm));
         if (!ptEq(state.inProgress.from, to)) {
-          const w = addWall(state.inProgress.from, to, 'ext');
+          const w = addWall(state.inProgress.from, to, state.wallType);
           if (w) state.inProgress.committed.push({ a: clonePt(w.a), b: clonePt(w.b) });
           state.inProgress.from = clonePt(to);
           state.inProgress.to = clonePt(to);
@@ -1350,10 +1396,14 @@
 
   function buildPrintSvg(bb, actualScale, withGrid) {
     const s = actualScale;
-    // For print, "screen pixels" = "paper mm". Convert: 1mm paper = (s/100) cm world.
-    // But the SVG world units are cm. To get a stroke of N mm on paper, in cm world use (N/10) * s.
+    // SVG world = real-world cm. Rendered at paper size (width/height in cm = world/s).
     const mm = (v) => (v / 10) * s;       // world cm for given paper mm
-    const pt = (v) => (v / 28.35) * s;    // world cm for given paper pt (1pt = 1/72in, 1in=2.54cm, 1cm=28.35pt)
+    const pt = (v) => (v / 28.35) * s;    // world cm for given paper pt
+    // Title block: fixed paper size so text is readable at any scale
+    const titlePaperH = 2.8;  // cm on paper
+    const titleBlockCm = titlePaperH * s;  // world cm
+    const paperW = bb.w / s;
+    const paperH = (bb.h + titleBlockCm) / s;
     function wallStrokeStyle(w) {
       const sel = isWallSelected(w);
       const mmVal = w.type === 'part' ? 0.25 : 0.5;
@@ -1362,10 +1412,15 @@
     }
     const svgOut = svgEl('svg', {
       xmlns: SVG_NS,
-      viewBox: bb.x + ' ' + bb.y + ' ' + bb.w + ' ' + (bb.h + 4),
-      width: bb.w + 'cm',
-      height: (bb.h + 4) + 'cm',
+      viewBox: bb.x + ' ' + bb.y + ' ' + bb.w + ' ' + (bb.h + titleBlockCm),
+      width: paperW + 'cm',
+      height: paperH + 'cm',
     });
+    // White background covering the full SVG so the plan isn't transparent
+    svgOut.appendChild(svgEl('rect', {
+      x: bb.x, y: bb.y, width: bb.w, height: bb.h + titleBlockCm,
+      fill: 'white', 'pointer-events': 'none',
+    }));
     if (withGrid) {
       const defs = svgEl('defs');
       const pat = svgEl('pattern', { id: 'pgrid', width: state.snap, height: state.snap, patternUnits: 'userSpaceOnUse' });
@@ -1396,7 +1451,8 @@
       const len = Math.hypot(dx, dy);
       const ux = dx / len, uy = dy / len;
       const nx = -uy, ny = ux;
-      const half = mm(20);  // ~ 2cm opening on paper
+      // Same real-world opening widths as screen rendering
+      const half = (o.type === 'door' ? 45 : 30);
       const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
       svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.4) }));
       if (o.type === 'door') {
@@ -1407,7 +1463,7 @@
         svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + (o.swing === 'right' ? 1 : 0) + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6' }));
         svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4) }));
       } else {
-        const off = mm(0.8);
+        const off = 6;
         svgOut.appendChild(svgEl('line', { x1: p.x - ux * half + nx * off, y1: p.y - uy * half + ny * off, x2: p.x + ux * half + nx * off, y2: p.y + uy * half + ny * off, stroke: col, 'stroke-width': mm(0.3) }));
         svgOut.appendChild(svgEl('line', { x1: p.x - ux * half - nx * off, y1: p.y - uy * half - ny * off, x2: p.x + ux * half - nx * off, y2: p.y + uy * half - ny * off, stroke: col, 'stroke-width': mm(0.3) }));
         svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.3) }));
@@ -1427,22 +1483,39 @@
         svgOut.appendChild(t);
       }
     }
-    // title block
-    const titleY = bb.y + bb.h + mm(5);
-    svgOut.appendChild(svgEl('line', { x1: bb.x, y1: titleY - mm(2.5), x2: bb.x + bb.w, y2: titleY - mm(2.5), stroke: '#999', 'stroke-width': mm(0.15) }));
-    const text = (state.projectName || 'Untitled') + '  ·  Scale 1:' + s + (s !== state.scale ? ' (auto)' : '') + '  ·  ' + new Date().toISOString().slice(0,10) + '  ·  Drawn with Floorplanify';
-    const tt = svgEl('text', { x: bb.x + bb.w / 2, y: titleY + mm(1.5), 'text-anchor': 'middle', 'font-size': pt(8), fill: '#333' });
-    tt.textContent = text;
+    // title block (centered horizontally, just below the plan)
+    const titleY = bb.y + bb.h + mm(8);  // 8mm paper below plan = separator line
+    const titleH = titleBlockCm;
+    svgOut.appendChild(svgEl('line', {
+      x1: bb.x, y1: titleY,
+      x2: bb.x + bb.w, y2: titleY,
+      stroke: '#999', 'stroke-width': mm(0.15),
+    }));
+    // Main title text — project name (short, centered-left to leave room for the arrow)
+    const mainText = state.projectName || 'Untitled';
+    const tt = svgEl('text', {
+      x: bb.x + bb.w / 2, y: titleY + mm(7),
+      'text-anchor': 'middle', 'font-size': pt(14), fill: '#222', 'font-weight': '700',
+    });
+    tt.textContent = mainText;
     svgOut.appendChild(tt);
-    // North arrow (top-right of plan, scaled to print)
+    // Sub line — scale + date + units + attribution
+    const subText = 'Scale 1:' + s + (s !== state.scale ? ' (auto)' : '') + '   ·   ' + new Date().toISOString().slice(0,10) + (state.units !== 'auto' ? '   ·   ' + state.units : '') + '   ·   Drawn with Floorplanify';
+    const st = svgEl('text', {
+      x: bb.x + bb.w / 2, y: titleY + mm(16),
+      'text-anchor': 'middle', 'font-size': pt(7), fill: '#666',
+    });
+    st.textContent = subText;
+    svgOut.appendChild(st);
+    // North arrow — tucked in the upper-right of the title block, small enough not to overlap text
     if (state.showNorth) {
-      const ncx = bb.x + bb.w - mm(15);
-      const ncy = bb.y + mm(15);
-      const nr = mm(7);
+      const ncx = bb.x + bb.w - mm(6);
+      const ncy = titleY + mm(8);
+      const nr = mm(4);
       const ng = svgEl('g', { transform: 'translate(' + ncx + ' ' + ncy + ')' });
-      ng.appendChild(svgEl('circle', { cx: 0, cy: 0, r: nr, fill: '#fff', stroke: '#333', 'stroke-width': mm(0.4) }));
-      ng.appendChild(svgEl('path', { d: 'M 0 ' + (-nr) + ' L ' + mm(2.2) + ' ' + (nr * 0.4) + ' L 0 ' + (nr * 0.1) + ' L ' + (-mm(2.2)) + ' ' + (nr * 0.4) + ' Z', fill: '#333' }));
-      const nt = svgEl('text', { x: 0, y: -nr - mm(1), 'text-anchor': 'middle', 'font-size': pt(7), fill: '#333', 'font-weight': '700' });
+      ng.appendChild(svgEl('circle', { cx: 0, cy: 0, r: nr, fill: '#fff', stroke: '#333', 'stroke-width': mm(0.2) }));
+      ng.appendChild(svgEl('path', { d: 'M 0 ' + (-nr) + ' L ' + mm(1.2) + ' ' + (nr * 0.4) + ' L 0 ' + (nr * 0.1) + ' L ' + (-mm(1.2)) + ' ' + (nr * 0.4) + ' Z', fill: '#333' }));
+      const nt = svgEl('text', { x: 0, y: -nr - mm(0.6), 'text-anchor': 'middle', 'font-size': pt(6), fill: '#222', 'font-weight': '700' });
       nt.textContent = 'N';
       ng.appendChild(nt);
       svgOut.appendChild(ng);
@@ -1455,10 +1528,14 @@
     const landscape = bb.w >= bb.h;
     const [pageW, pageH] = landscape ? [29.7, 21] : [21, 29.7];
     const fit = autoShrink(bb, pageW, pageH, state.scale);
-    const offX = (pageW - fit.paperW) / 2;
-    const offY = (pageH - fit.paperH) / 2;
-    const svgOut = buildPrintSvg(bb, fit.actualScale, state.showGrid);
-    svgOut.setAttribute('style', 'position:absolute;left:' + offX + 'cm;top:' + offY + 'cm;width:' + fit.paperW + 'cm;height:' + fit.paperH + 'cm;');
+    const s = fit.actualScale;
+    const titleBlockCm = 2.8 * s;
+    const imgPaperW = fit.paperW;
+    const imgPaperH = (bb.h + titleBlockCm) / s;
+    const offX = (pageW - imgPaperW) / 2;
+    const offY = (pageH - imgPaperH) / 2;
+    const svgOut = buildPrintSvg(bb, s, state.showGrid);
+    svgOut.setAttribute('style', 'position:absolute;left:' + offX + 'cm;top:' + offY + 'cm;width:' + imgPaperW + 'cm;height:' + imgPaperH + 'cm;');
     document.body.appendChild(svgOut);
     document.body.classList.add('printing');
     setTimeout(() => {
@@ -1476,9 +1553,11 @@
     const pageW = landscape ? 29.7 : 21;
     const pageH = landscape ? 21   : 29.7;
     const fit = autoShrink(bb, pageW, pageH, state.scale);
-    const svgOut = buildPrintSvg(bb, fit.actualScale, state.showGrid);
-    svgOut.setAttribute('width',  fit.paperW + 'cm');
-    svgOut.setAttribute('height', fit.paperH + 'cm');
+    const s = fit.actualScale;
+    const titleBlockCm = 2.8 * s;
+    const imgPaperW = fit.paperW;
+    const imgPaperH = (bb.h + titleBlockCm) / s;
+    const svgOut = buildPrintSvg(bb, s, state.showGrid);
     const xml = new XMLSerializer().serializeToString(svgOut);
     const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1492,10 +1571,10 @@
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      const offX = ((pageW - fit.paperW) / 2) * cmToInch * DPI;
-      const offY = ((pageH - fit.paperH) / 2) * cmToInch * DPI;
-      const w = fit.paperW * cmToInch * DPI;
-      const h = (bb.h + 4) * cmToInch * DPI;
+      const offX = ((pageW - imgPaperW) / 2) * cmToInch * DPI;
+      const offY = ((pageH - imgPaperH) / 2) * cmToInch * DPI;
+      const w = imgPaperW * cmToInch * DPI;
+      const h = imgPaperH * cmToInch * DPI;
       ctx.drawImage(img, offX, offY, w, h);
       canvas.toBlob((b) => {
         const a = document.createElement('a');
@@ -1511,8 +1590,7 @@
   function exportSvg() {
     const bb = boundingBox();
     const svgOut = buildPrintSvg(bb, state.scale, state.showGrid);
-    svgOut.setAttribute('width', bb.w + 'cm');
-    svgOut.setAttribute('height', (bb.h + 4) + 'cm');
+    // width/height already set to paper-cm by buildPrintSvg
     const xml = new XMLSerializer().serializeToString(svgOut);
     const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
     const a = document.createElement('a');
@@ -1581,6 +1659,7 @@
   document.getElementById('snap').addEventListener('change',  (e) => { state.snap  = parseInt(e.target.value, 10); requestRender(); });
   document.getElementById('ortho').addEventListener('change', (e) => { state.ortho = e.target.checked; if (state.ortho) { state.angle45 = false; document.getElementById('angle45').checked = false; } });
   document.getElementById('angle45').addEventListener('change',(e) => { state.angle45 = e.target.checked; if (state.angle45) { state.ortho = false; document.getElementById('ortho').checked = false; } });
+  document.getElementById('wallType').addEventListener('change', (e) => { state.wallType = e.target.value; });
   document.getElementById('showGrid').addEventListener('change',  (e) => { state.showGrid = e.target.checked; requestRender(); });
   document.getElementById('showLabels').addEventListener('change',(e) => { state.showLabels = e.target.checked; requestRender(); });
   document.getElementById('showRooms').addEventListener('change',(e) => { state.showRooms = e.target.checked; requestRender(); });
@@ -1616,6 +1695,7 @@
     e.target.value = '';
   });
 
+  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; requestRender(); });
   svg.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Initial render + fit
