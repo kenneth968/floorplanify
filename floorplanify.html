@@ -391,6 +391,29 @@
       if (last) restore(last);
     }
   });
+
+  document.getElementById('projectName').addEventListener('input', (e) => {
+    state.projectName = e.target.value;
+  });
+  document.getElementById('scale').addEventListener('change', (e) => {
+    state.scale = parseInt(e.target.value, 10);
+  });
+  document.getElementById('units').addEventListener('change', (e) => {
+    state.units = e.target.value;
+    render();
+  });
+  document.getElementById('snap').addEventListener('change', (e) => {
+    state.snap = parseInt(e.target.value, 10);
+    render();
+  });
+  document.getElementById('showGrid').addEventListener('change', (e) => {
+    state.showGrid = e.target.checked;
+    render();
+  });
+  document.getElementById('showLabels').addEventListener('change', (e) => {
+    state.showLabels = e.target.checked;
+    render();
+  });
 })();
 </script>
 </body>
