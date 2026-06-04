@@ -225,16 +225,37 @@
     render();
   });
 
+  function hitWall(p) {
+    const tol = 6 / state.zoom;                            // 6 px tolerance
+    let best = null, bestD = Infinity;
+    for (const w of state.walls) {
+      const d = pointToSegment(p, w.a, w.b);
+      if (d < tol && d < bestD) { best = w; bestD = d; }
+    }
+    return best;
+  }
+
   svg.addEventListener('click', (evt) => {
     const p = clientToCm(evt);
-    if (state.selection) state.selection = null;            // clear selection on canvas click
-    if (!state.inProgress) {
-      state.inProgress = { from: p, to: p };
+    const hit = hitWall(p);
+    if (hit) {
+      if (state.selection && state.selection.type === 'wall' && state.selection.id === hit.id) {
+        state.selection = null;                            // toggle off
+      } else {
+        state.selection = { type: 'wall', id: hit.id };
+        state.inProgress = null;
+      }
     } else {
-      const w = { id: 'w' + (state.nextId++), a: state.inProgress.from, b: p };
-      if (lengthCm(w) > 0) {
-        state.walls.push(w);
+      // empty canvas: extend (or start) a chain
+      state.selection = null;
+      if (!state.inProgress) {
         state.inProgress = { from: p, to: p };
+      } else {
+        const w = { id: 'w' + (state.nextId++), a: state.inProgress.from, b: p };
+        if (lengthCm(w) > 0) {
+          state.walls.push(w);
+          state.inProgress = { from: p, to: p };
+        }
       }
     }
     render();
@@ -248,6 +269,16 @@
     if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
     if (evt.key === 'Enter')      finishChain();
     else if (evt.key === 'Escape'){ if (state.inProgress) finishChain(); else if (state.selection) { state.selection = null; render(); } }
+  });
+  document.addEventListener('keydown', (evt) => {
+    if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT') return;
+    if (evt.key === 'Delete' || evt.key === 'Backspace') {
+      if (state.selection && state.selection.type === 'wall') {
+        state.walls = state.walls.filter(w => w.id !== state.selection.id);
+        state.selection = null;
+        render();
+      }
+    }
   });
 })();
 </script>
