@@ -1,5 +1,49 @@
+# OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Editors
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
+
+# Node / package managers (in case a future build is added)
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+build/
+*.min.js
+*.min.css
+
+# Local caches
+.cache/
+.tmp/
+.temp/
+
+# Logs
+*.log
+logs/
+
+# OMC (orchestration) state
+.omc/
+.omx/
+
+# Local-only data
+*.local
+.env
+.env.local
+
+# Test outputs
+coverage/
+.nyc_output/
+
+# Generated files
+*.bak
+*.tmp

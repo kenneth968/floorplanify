@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    name: Validate HTML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check file exists
+        run: test -f floorplanify.html
+
+      - name: Check file size sanity
+        run: |
+          SIZE=$(stat -c%s floorplanify.html)
+          if [ "$SIZE" -lt 100000 ] || [ "$SIZE" -gt 2000000 ]; then
+            echo "floorplanify.html size $SIZE is outside the 100KB–2MB sanity range."
+            exit 1
+          fi
+          echo "floorplanify.html size: $SIZE bytes (OK)"
+
+      - name: Verify it parses as HTML
+        run: |
+          # Use Python's html.parser for a permissive parse — we just want to catch
+          # accidentally truncated files or unbalanced tags.
+          python3 - <<'PY'
+          import html.parser, sys
+          class P(html.parser.HTMLParser):
+              def error(self, message):
+                  raise SystemExit("parse error: " + message)
+          p = P()
+          with open('floorplanify.html', 'r', encoding='utf-8') as f:
+              p.feed(f.read())
+          print("HTML parses OK")
+          PY
+
+      - name: Verify required anchors
+        run: |
+          for ID in canvas toolbar objectSidebar statusbar saveJson loadJson exportPdf exportPng exportSvg; do
+            if ! grep -q "id=\"$ID\"" floorplanify.html; then
+              echo "missing element id: $ID"
+              exit 1
+            fi
+          done
+          echo "all required element ids present"
+
+  lint-markdown:
+    name: Lint markdown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: |
+            *.md
+            .github/**/*.md
