@@ -161,6 +161,19 @@
   }
   #contextMenu button:hover { background: var(--accent-soft); }
   #contextMenu button.danger { color: var(--danger); }
+  #contextMenu .menu-sep {
+    height: 1px;
+    margin: 4px 4px;
+    background: #dbe1e8;
+  }
+  #contextMenu .menu-label {
+    padding: 3px 8px 2px;
+    color: #667085;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 
   .modal-backdrop {
     position: fixed;
@@ -887,6 +900,7 @@
   <summary>Tastatursnarveier</summary>
   <ul>
     <li><kbd>V</kbd> Velg &nbsp; <kbd>W</kbd> Vegg &nbsp; <kbd>R</kbd> Romboks &nbsp; <kbd>K</kbd> Definer rom &nbsp; <kbd>S</kbd> Trapp &nbsp; <kbd>D</kbd> Dør &nbsp; <kbd>N</kbd> Vindu &nbsp; <kbd>H</kbd> Panorer &nbsp; <kbd>M</kbd> Mål</li>
+    <li><kbd>Q</kbd> Vegg/Rom: rektangelmodus (klikk første hjørne, klikk motsatt hjørne)</li>
     <li><kbd>Tving 90°</kbd> holder nye vegger ortogonale &nbsp; <kbd>Alt</kbd> tillater 45° midlertidig</li>
     <li>Yttervegger vises tykke og heltrukne. Innervegger vises tynnere og stiplet.</li>
     <li><kbd>Enter</kbd> / <kbd>dobbeltklikk</kbd> Fullfør kjede &nbsp; <kbd>Esc</kbd> Avbryt / fravelg</li>
@@ -934,6 +948,7 @@
     spaceDown: false,
     matchedWalls: [],
     matchedWallsLength: null,
+    endpointMatches: [],
     hoveredId: '',
     ortho: true,
     angle45: false,
@@ -942,6 +957,8 @@
     measureStart: null,
     measureEnd: null,
     clipboard: null,
+    rectMode: false,
+    rectFirst: null,
   };
 
   const svg = document.getElementById('canvas');
@@ -1199,6 +1216,8 @@
     state.measureEnd = null;
     state.matchedWalls = [];
     state.matchedWallsLength = null;
+    state.endpointMatches = [];
+    state.rectFirst = null;
     document.getElementById('projectName').value = state.projectName;
     document.getElementById('roomInfo').value = state.roomInfo;
     document.getElementById('scale').value = String(state.scale);
@@ -1389,6 +1408,17 @@
       if (Math.abs(len - targetCm) <= tol) out.push({ wall: w, length: len, delta: Math.abs(len - targetCm) });
     }
     out.sort((a, b) => a.delta - b.delta);
+    return out;
+  }
+  // Walls that share an endpoint with the given point. Used for the "green"
+  // tier of the length-match hint: a wall is *really* the same length as the
+  // segment being drawn when it could be connected at that point.
+  function findWallsAtPoint(p) {
+    if (!p) return [];
+    const out = [];
+    for (const w of state.walls) {
+      if (ptEq(w.a, p) || ptEq(w.b, p)) out.push(w);
+    }
     return out;
   }
   // Snap targets for door/window placement along a wall: endpoints, midpoint,
@@ -2459,6 +2489,7 @@
     clear(gWalls);
     const seenLabels = state._lengthLabelKeys || new Set();
     const matched = state.matchedWalls || [];
+    const endpoints = state.endpointMatches || [];
     // Pre-bucket openings by wall id so we can split each wall into segments.
     const openingsByWall = new Map();
     for (const o of state.openings) {
@@ -2474,9 +2505,15 @@
     }
     for (const w of state.walls) {
       const sel = isWallSelected(w);
+      const isEnd = endpoints.indexOf(w.id) >= 0;
       const isMatch = matched.indexOf(w.id) >= 0;
-      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1) * (isMatch ? 1.2 : 1);
-      const stroke = isMatch ? '#0a8a4a' : (sel ? '#2266dd' : (w.type === 'part' ? '#666' : '#111'));
+      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1) * ((isMatch || isEnd) ? 1.2 : 1);
+      // Endpoint-shared walls go green (they could actually connect), plain
+      // length matches go orange (just a length hint, not a real connection).
+      const stroke = isEnd ? '#0a8a4a'
+        : isMatch ? '#e08a16'
+        : sel ? '#2266dd'
+        : (w.type === 'part' ? '#666' : '#111');
       // Build segments by sorting the openings on this wall and cutting around them.
       const cuts = (openingsByWall.get(w.id) || []).slice().sort((a, b) => a.lo - b.lo);
       const segs = [];
@@ -2506,11 +2543,17 @@
       } else {
         for (const s of segs) drawSeg(s.t0, s.t1);
       }
-      if (isMatch) {
+      if (isEnd) {
         gWalls.appendChild(svgEl('line', {
           x1: w.a.x, y1: w.a.y, x2: w.b.x, y2: w.b.y,
           stroke: '#0a8a4a', 'stroke-width': state._fs(widthPx + 6),
           opacity: '0.18', 'stroke-linecap': 'round', 'pointer-events': 'none',
+        }));
+      } else if (isMatch) {
+        gWalls.appendChild(svgEl('line', {
+          x1: w.a.x, y1: w.a.y, x2: w.b.x, y2: w.b.y,
+          stroke: '#e08a16', 'stroke-width': state._fs(widthPx + 6),
+          opacity: '0.16', 'stroke-linecap': 'round', 'pointer-events': 'none',
         }));
       }
       if (state.showLabels) {
@@ -2731,7 +2774,40 @@
     // in-progress
     if (state.inProgress) {
       const ip = state.inProgress;
-      if (ip.kind === 'room') {
+      if (ip.kind === 'rect') {
+        // Click-first-corner / click-opposite-corner preview. Drawn as a
+        // dashed rectangle with dimension labels on two edges.
+        const a = ip.from, b = ip.to;
+        const r = {
+          x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+          w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
+        };
+        const color = state.tool === 'room' ? '#b58900' : '#2266dd';
+        const fillCol = state.tool === 'room' ? 'rgba(181,137,0,0.10)' : 'rgba(34,102,221,0.10)';
+        const labelCol = state.tool === 'room' ? '#8a5d00' : '#1a4ea0';
+        gOverlay.appendChild(svgEl('rect', {
+          x: r.x, y: r.y, width: r.w, height: r.h,
+          fill: fillCol, stroke: color, 'stroke-width': state._fs(2.5), 'stroke-dasharray': '8 4',
+          'pointer-events': 'none',
+        }));
+        if (r.w > 0 && r.h > 0) {
+          const corners = [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
+          renderSegmentLength(gOverlay, corners[0], corners[1], { fill: labelCol, fontPx: 12, offsetPx: 16, haloPx: 3.5 });
+          renderSegmentLength(gOverlay, corners[1], corners[2], { fill: labelCol, fontPx: 12, offsetPx: 16, haloPx: 3.5 });
+          if (state.tool === 'room') {
+            const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+            const t = svgEl('text', {
+              x: c.x, y: c.y, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+              'font-size': state._fs(14), fill: labelCol, 'font-weight': '650',
+              stroke: '#fff', 'stroke-width': state._fs(4), 'paint-order': 'stroke fill',
+              'pointer-events': 'none',
+            });
+            t.textContent = formatArea(r.w * r.h);
+            gOverlay.appendChild(t);
+          }
+        }
+        gOverlay.appendChild(svgEl('circle', { cx: a.x, cy: a.y, r: state._fs(3.5), fill: color }));
+      } else if (ip.kind === 'room') {
         const pts = ip.polyline.slice();
         if (ip.to) pts.push(ip.to);
         if (pts.length >= 2) {
@@ -3791,9 +3867,13 @@
       const ip = state.inProgress;
       if (ip.kind === 'wall') {
         const base = draftSegmentText('Vegg', ip.from, ip.to, true);
-        if (state.matchedWallsLength != null && state.matchedWalls && state.matchedWalls.length) {
-          const match = 'match: ' + formatLength(state.matchedWallsLength, state.units) + ' (' + state.matchedWalls.length + ' vegg' + (state.matchedWalls.length === 1 ? '' : 'er') + ')';
-          return base + ' · ' + match;
+        const ep = state.endpointMatches && state.endpointMatches.length;
+        const lg = state.matchedWallsLength != null && state.matchedWalls && state.matchedWalls.length;
+        if (ep || lg) {
+          const parts = [];
+          if (ep) parts.push('kobling: ' + state.endpointMatches.length + ' vegg' + (state.endpointMatches.length === 1 ? '' : 'er'));
+          if (lg) parts.push('match: ' + formatLength(state.matchedWallsLength, state.units) + ' (' + state.matchedWalls.length + ' vegg' + (state.matchedWalls.length === 1 ? '' : 'er') + ')');
+          return base + ' · ' + parts.join(' · ');
         }
         return base;
       }
@@ -3832,12 +3912,20 @@
     if (t === 'select') return state.selection || state.multiSel.size
       ? 'Dra for å flytte · Ctrl+C/V kopierer · Del sletter · Shift+klikk for flere valg'
       : 'Klikk en vegg, et hjørne, et rom, en trapp eller en målelinje. Dra for å flytte.';
-    if (t === 'wall')  return state.inProgress
-      ? 'Klikk neste punkt for å fortsette veggkjeden. ' + angleModeHint() + '. Enter eller dobbeltklikk fullfører. Esc avbryter.'
-      : 'Klikk for å plassere vegghjørner. ' + angleModeHint() + ' · Enter fullfører.';
-    if (t === 'room')  return state.inProgress
-      ? 'Klikk neste hjørne. ' + angleModeHint() + '. Enter eller dobbeltklikk lukker. Esc avbryter.'
-      : 'Dra fra ett hjørne for et rektangel, eller klikk hjørner for egendefinert omriss. ' + angleModeHint() + '.';
+    if (t === 'wall')  return state.rectMode
+      ? (state.rectFirst
+          ? 'Klikk motsatt hjørne for å fullføre rektangelet. Esc avbryter.'
+          : 'Rektangelmodus (Q): klikk første hjørne. Q for å skru av.')
+      : state.inProgress
+        ? 'Klikk neste punkt for å fortsette veggkjeden. ' + angleModeHint() + '. Enter eller dobbeltklikk fullfører. Esc avbryter · Q = rektangel.'
+        : 'Klikk for å plassere vegghjørner. ' + angleModeHint() + ' · Enter fullfører · Q = rektangel.';
+    if (t === 'room')  return state.rectMode
+      ? (state.rectFirst
+          ? 'Klikk motsatt hjørne for å fullføre rektangelet. Esc avbryter.'
+          : 'Rektangelmodus (Q): klikk første hjørne. Q for å skru av.')
+      : state.inProgress
+        ? 'Klikk neste hjørne. ' + angleModeHint() + '. Enter eller dobbeltklikk lukker. Esc avbryter · Q = rektangel.'
+        : 'Dra fra ett hjørne for et rektangel, eller klikk hjørner for egendefinert omriss. ' + angleModeHint() + ' · Q = rektangel.';
     if (t === 'mark') return 'Klikk inne i en lukket veggsløyfe. Rommet opprettes og kan navngis i sidepanelet.';
     if (t === 'stair') return 'Velg opp/ned i Tegn-feltet, og dra et rektangel for trappeareal.';
     if (t === 'door')  return 'Sett bredde i Tegn-feltet, hold over en vegg for forhåndsvisning, klikk for å plassere dør.';
@@ -3943,6 +4031,8 @@
     state.measureEnd = null;
     state.matchedWalls = [];
     state.matchedWallsLength = null;
+    state.endpointMatches = [];
+    state.rectFirst = null;
     hideContextMenu();
     syncToolButtons();
     requestRender();
@@ -4069,24 +4159,28 @@
     if (state.inProgress) {
       state.inProgress.to = applySnap(constrainFor(cm));
       // Match-length hint for wall chain drawing: highlight existing walls
-      // whose length is within snap of the current segment.
+      // whose length is within snap of the current segment (orange) and
+      // walls that share an endpoint with the segment's start (green).
       if (state.inProgress.kind === 'wall' && state.inProgress.from) {
         const cur = state.inProgress.to;
         const segLen = Math.hypot(cur.x - state.inProgress.from.x, cur.y - state.inProgress.from.y);
         const matches = segLen > state.snap ? findWallsByLength(segLen) : [];
         state.matchedWalls = matches.slice(0, 4).map(m => m.wall.id);
         state.matchedWallsLength = matches.length ? matches[0].length : null;
+        state.endpointMatches = findWallsAtPoint(state.inProgress.from).map(w => w.id);
       } else {
         state.matchedWalls = [];
         state.matchedWallsLength = null;
+        state.endpointMatches = [];
       }
       requestRender();
       return;
     }
     // Cleared once the user stops drawing so the highlight doesn't linger.
-    if (state.matchedWalls && state.matchedWalls.length) {
+    if ((state.matchedWalls && state.matchedWalls.length) || (state.endpointMatches && state.endpointMatches.length)) {
       state.matchedWalls = [];
       state.matchedWallsLength = null;
+      state.endpointMatches = [];
       requestRender();
     }
     // Sidebar hover sync: highlight the sidebar row for whatever the cursor
@@ -4250,6 +4344,34 @@
       return;
     }
     if (tool === 'wall') {
+      // Rect mode: click first corner, click opposite corner → 4 walls.
+      if (state.rectMode) {
+        const p = applySnap(constrainFor(cm));
+        if (!state.rectFirst) {
+          state.rectFirst = clonePt(p);
+          state.inProgress = { kind: 'rect', from: clonePt(p), to: clonePt(p) };
+          requestRender();
+          return;
+        }
+        const a = state.rectFirst;
+        state.rectFirst = null;
+        state.inProgress = null;
+        if (Math.abs(p.x - a.x) < state.snap || Math.abs(p.y - a.y) < state.snap) {
+          showNotice('Rektangelet er for lite — Esc avbryter.');
+          requestRender();
+          return;
+        }
+        snapshot();
+        // Walk the 4 corners clockwise starting from the captured one.
+        const c = { x: p.x, y: a.y };
+        const d = { x: a.x, y: p.y };
+        addWall(a, c, state.wallType);
+        addWall(c, p, state.wallType);
+        addWall(p, d, state.wallType);
+        addWall(d, a, state.wallType);
+        requestRender();
+        return;
+      }
       const corner = hitCorner(cm);
       let from = corner ? corner.pos : applySnap(constrainFor(cm));
       if (!state.inProgress) {
@@ -4268,6 +4390,30 @@
       return;
     }
     if (tool === 'room') {
+      // Rect mode: click first corner, click opposite corner → a 4-point room.
+      if (state.rectMode) {
+        const p = applySnap(constrainFor(cm));
+        if (!state.rectFirst) {
+          state.rectFirst = clonePt(p);
+          state.inProgress = { kind: 'rect', from: clonePt(p), to: clonePt(p) };
+          requestRender();
+          return;
+        }
+        const a = state.rectFirst;
+        state.rectFirst = null;
+        state.inProgress = null;
+        if (Math.abs(p.x - a.x) < state.snap || Math.abs(p.y - a.y) < state.snap) {
+          showNotice('Rektangelet er for lite — Esc avbryter.');
+          requestRender();
+          return;
+        }
+        snapshot();
+        const pts = [a, { x: p.x, y: a.y }, p, { x: a.x, y: p.y }];
+        const room = addRoom(pts, 'Rom ' + (state.rooms.length + 1), state.wallType);
+        state.selection = room ? { type: 'room', id: room.id } : null;
+        requestRender();
+        return;
+      }
       const p = applySnap(constrainFor(cm));
       if (!state.inProgress) {
         dragRoomRect = { x: p.x, y: p.y, x2: p.x, y2: p.y };
@@ -4408,6 +4554,19 @@
     contextMenu.appendChild(btn);
   }
 
+  function addMenuSeparator() {
+    const sep = document.createElement('div');
+    sep.className = 'menu-sep';
+    contextMenu.appendChild(sep);
+  }
+
+  function addMenuLabel(text) {
+    const lbl = document.createElement('div');
+    lbl.className = 'menu-label';
+    lbl.textContent = text;
+    contextMenu.appendChild(lbl);
+  }
+
   function showContextMenu(evt, cm) {
     hideContextMenu();
     const op = hitOpening(cm);
@@ -4469,7 +4628,18 @@
       });
     }
     if (state.guides.length) addMenuButton('Tøm målelinjer', () => { snapshot(); state.guides = []; requestRender(); });
-    addMenuButton('Fravelg', () => { state.selection = null; state.multiSel.clear(); requestRender(); });
+    // Empty ground: surface the most common tools so a right-click on bare
+    // canvas can switch the active tool without dragging back to the toolbar.
+    if (!target) {
+      addMenuSeparator();
+      addMenuLabel('Verktøy');
+      addMenuButton('Vegg',  () => setTool('wall'));
+      addMenuButton('Rom',   () => setTool('room'));
+      addMenuButton('Trapp', () => setTool('stair'));
+      addMenuButton('Dør',   () => setTool('door'));
+      addMenuButton('Vindu', () => setTool('window'));
+    }
+    addMenuButton('Fravelg', () => setTool('select'));
     const menuW = 190;
     const menuH = Math.max(34, contextMenu.childElementCount * 34);
     contextMenu.style.left = Math.max(8, Math.min(evt.clientX, window.innerWidth - menuW - 8)) + 'px';
@@ -4659,9 +4829,10 @@
     if (evt.key === ' ') { state.spaceDown = true; evt.preventDefault(); return; }
     if (evt.key === 'Escape') {
       if (contextMenu.classList.contains('open')) { hideContextMenu(); return; }
+      if (state.rectFirst) { state.rectFirst = null; state.inProgress = null; showNotice('Rektangel avbrutt.'); requestRender(); return; }
       if (state.inProgress) { state.inProgress = null; requestRender(); return; }
       if (state.measureStart) { state.measureStart = null; state.measureEnd = null; requestRender(); return; }
-      if (state.selection || state.multiSel.size) { state.selection = null; state.multiSel.clear(); requestRender(); return; }
+      if (state.selection || state.multiSel.size) { setTool('select'); return; }
       setTool('wall');
       return;
     }
@@ -4687,6 +4858,17 @@
     else if (k === 'm') setTool('measure');
     else if (k === 'f') zoomFit();
     else if (k === '0') zoomActual();
+    else if (k === 'q') {
+      // Q toggles "click first corner, click second corner" rectangle mode
+      // for the wall and room tools. Single/chain mode is the default.
+      if (state.tool === 'wall' || state.tool === 'room') {
+        state.rectMode = !state.rectMode;
+        state.rectFirst = null;
+        if (state.inProgress && state.inProgress.kind !== 'rect') state.inProgress = null;
+        showNotice(state.rectMode ? 'Rektangelmodus på' : 'Rektangelmodus av');
+        requestRender();
+      }
+    }
     else if (evt.key === '?' || (evt.shiftKey && evt.key === '/')) {
       const help = document.getElementById('help');
       if (help) help.open = !help.open;
@@ -5790,9 +5972,9 @@
       const type = btn.dataset.type;
       const id = btn.dataset.id;
       if (action === 'deselect') {
-        state.selection = null;
-        state.multiSel.clear();
-        requestRender();
+        // Fravelg returns to the select tool so the cursor doesn't stay in
+        // wall/room/door-drawing mode after a deselect.
+        setTool('select');
       } else if (action === 'select') selectObject(type, id);
       else if (action === 'focus') {
         selectObject(type, id);
@@ -5884,7 +6066,7 @@
     e.target.value = '';
   });
 
-  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; state.matchedWalls = []; requestRender(); });
+  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; state.matchedWalls = []; state.endpointMatches = []; requestRender(); });
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     // Right-click while drawing a wall chain cancels the chain (no 5th wall starts).
@@ -5931,7 +6113,7 @@
   window.__floorplanify = {
     state, lengthCm, formatLength, formatArea, openingWidth, snapCm, pointToSegment,
     lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
-    findWallFaces, findRoomFaceAt, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
+    findWallFaces, findRoomFaceAt, findWallsByLength, findWallsAtPoint, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
     constrainFor, orthogonalCornerPoint, applySelectedDimensions, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
