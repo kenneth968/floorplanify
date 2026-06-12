@@ -1701,6 +1701,7 @@
   function addRoom(points, name, wallType) {
     if (points.length < 3) return null;
     wallType = wallType || state.wallType || 'ext';
+    const existingFaces = findWallFaces();
     // For each consecutive pair (and closing pair), add a wall for the edge
     // if one doesn't already exist. This unifies "drawing a room" with
     // "drawing the room's walls".
@@ -1710,7 +1711,7 @@
       const b = points[(i + 1) % n];
       if (ptEq(a, b)) continue;
       if (!wallExistsBetween(a, b)) {
-        addWall(a, b, wallType);
+        addWall(a, b, roomEdgeInsideFaces(a, b, existingFaces) ? 'part' : wallType);
       }
     }
     const r = { id: 'r' + (state.nextId++), points: points.map(clonePt), name: name || ('Rom ' + (state.rooms.length + 1)), color: nextRoomColor() };
@@ -1724,9 +1725,25 @@
     return r;
   }
   function wallExistsBetween(a, b) {
-    return state.walls.some(w =>
-      (ptEq(w.a, a) && ptEq(w.b, b)) || (ptEq(w.a, b) && ptEq(w.b, a))
-    );
+    return state.walls.some(w => wallCoversSegment(w, a, b));
+  }
+  function wallCoversSegment(w, a, b) {
+    return pointOnWallSegment(a, w) && pointOnWallSegment(b, w);
+  }
+  function pointOnWallSegment(p, w) {
+    const dx = w.b.x - w.a.x;
+    const dy = w.b.y - w.a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return ptEq(p, w.a);
+    const t = ((p.x - w.a.x) * dx + (p.y - w.a.y) * dy) / len2;
+    if (t < -0.001 || t > 1.001) return false;
+    const x = w.a.x + t * dx;
+    const y = w.a.y + t * dy;
+    return Math.hypot(p.x - x, p.y - y) < 0.5;
+  }
+  function roomEdgeInsideFaces(a, b, faces) {
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    return faces.some(face => pointInPoly(mid, face.points));
   }
   function findWallBetweenPoints(a, b) {
     return state.walls.find(w =>
@@ -2506,7 +2523,7 @@
       const sel = isWallSelected(w);
       const isTight = tight.indexOf(w.id) >= 0;
       const isMatch = matched.indexOf(w.id) >= 0;
-      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1) * ((isMatch || isTight) ? 1.2 : 1);
+      const widthPx = (w.type === 'part' ? 3 : 9) * (sel ? 1.5 : 1) * ((isMatch || isTight) ? 1.2 : 1);
       // Tight length match (within snap) → green. Loose match (within 10cm)
       // → orange. These are independent colors so the user can tell whether
       // they're on the right length yet.
