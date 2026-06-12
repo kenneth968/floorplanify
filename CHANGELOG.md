@@ -32,15 +32,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Wall gaps at openings.** Walls are now drawn as segments that
   physically stop at each opening, so the gap is visible on screen and
   in the printed/exported plan.
-- **Two-tier length-match hint.** Walls of similar length now get an
-  orange highlight; the green highlight is reserved for walls that
-  actually share an endpoint with the segment being drawn (so the user
-  can tell "same length" apart from "could really connect here").
+- **Two-tier length-match hint.** Walls within ±10cm of the segment
+  being drawn get an orange highlight; walls within snap distance go
+  green, so the user can tell "loose match" apart from "on the right
+  length."
 - **`Q` toggles rectangle mode for the wall and room tools.** In rect
   mode the user clicks the first corner, then the opposite corner, and
-  the tool creates 4 walls (wall) or a 4-point room (room). Single
-  /chain drawing remains the default. Esc cancels a captured first
-  corner.
+  the tool creates 4 walls (wall) or a 4-point room (room). A bold
+  dashed preview with a corner marker follows the mouse after the
+  first click, the status bar shows "REKTANGEL" while the mode is on,
+  and Esc cancels a captured first corner.
 - **Right-click quick tool menu.** On bare canvas, the context menu now
   has a "Verktøy" section with Vegg, Rom, Trapp, Dør, Vindu so the
   active tool can be switched without dragging back to the toolbar.

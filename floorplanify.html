@@ -948,7 +948,7 @@
     spaceDown: false,
     matchedWalls: [],
     matchedWallsLength: null,
-    endpointMatches: [],
+    tightMatches: [],
     hoveredId: '',
     ortho: true,
     angle45: false,
@@ -1216,7 +1216,7 @@
     state.measureEnd = null;
     state.matchedWalls = [];
     state.matchedWallsLength = null;
-    state.endpointMatches = [];
+    state.tightMatches = [];
     state.rectFirst = null;
     document.getElementById('projectName').value = state.projectName;
     document.getElementById('roomInfo').value = state.roomInfo;
@@ -1400,26 +1400,25 @@
   // Find existing walls with length within (snap) of the given length, used to
   // give a visual hint when the user is drawing a wall that could match one
   // already placed (typical use: parallel walls of equal length).
+  // Find existing walls with length within the given tolerance. Used to
+  // give a visual hint when the user is drawing a wall that could match one
+  // already placed (typical use: parallel walls of equal length).
+  // Returns two tiers: tight (within snap, green) and loose (within 10cm,
+  // orange). The tight list is a subset of the loose list.
   function findWallsByLength(targetCm) {
-    const tol = Math.max(state.snap, 5);
-    const out = [];
+    const tightTol = Math.max(state.snap / 2, 1);
+    const looseTol = 10;
+    const tight = [];
+    const loose = [];
     for (const w of state.walls) {
       const len = lengthCm(w);
-      if (Math.abs(len - targetCm) <= tol) out.push({ wall: w, length: len, delta: Math.abs(len - targetCm) });
+      const delta = Math.abs(len - targetCm);
+      if (delta <= tightTol) tight.push({ wall: w, length: len, delta });
+      if (delta <= looseTol) loose.push({ wall: w, length: len, delta });
     }
-    out.sort((a, b) => a.delta - b.delta);
-    return out;
-  }
-  // Walls that share an endpoint with the given point. Used for the "green"
-  // tier of the length-match hint: a wall is *really* the same length as the
-  // segment being drawn when it could be connected at that point.
-  function findWallsAtPoint(p) {
-    if (!p) return [];
-    const out = [];
-    for (const w of state.walls) {
-      if (ptEq(w.a, p) || ptEq(w.b, p)) out.push(w);
-    }
-    return out;
+    tight.sort((a, b) => a.delta - b.delta);
+    loose.sort((a, b) => a.delta - b.delta);
+    return { tight, loose };
   }
   // Snap targets for door/window placement along a wall: endpoints, midpoint,
   // and the position of any existing opening on the same wall. Returns the
@@ -2489,7 +2488,7 @@
     clear(gWalls);
     const seenLabels = state._lengthLabelKeys || new Set();
     const matched = state.matchedWalls || [];
-    const endpoints = state.endpointMatches || [];
+    const tight = state.tightMatches || [];
     // Pre-bucket openings by wall id so we can split each wall into segments.
     const openingsByWall = new Map();
     for (const o of state.openings) {
@@ -2505,12 +2504,13 @@
     }
     for (const w of state.walls) {
       const sel = isWallSelected(w);
-      const isEnd = endpoints.indexOf(w.id) >= 0;
+      const isTight = tight.indexOf(w.id) >= 0;
       const isMatch = matched.indexOf(w.id) >= 0;
-      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1) * ((isMatch || isEnd) ? 1.2 : 1);
-      // Endpoint-shared walls go green (they could actually connect), plain
-      // length matches go orange (just a length hint, not a real connection).
-      const stroke = isEnd ? '#0a8a4a'
+      const widthPx = (w.type === 'part' ? 5 : 9) * (sel ? 1.5 : 1) * ((isMatch || isTight) ? 1.2 : 1);
+      // Tight length match (within snap) → green. Loose match (within 10cm)
+      // → orange. These are independent colors so the user can tell whether
+      // they're on the right length yet.
+      const stroke = isTight ? '#0a8a4a'
         : isMatch ? '#e08a16'
         : sel ? '#2266dd'
         : (w.type === 'part' ? '#666' : '#111');
@@ -2543,7 +2543,7 @@
       } else {
         for (const s of segs) drawSeg(s.t0, s.t1);
       }
-      if (isEnd) {
+      if (isTight) {
         gWalls.appendChild(svgEl('line', {
           x1: w.a.x, y1: w.a.y, x2: w.b.x, y2: w.b.y,
           stroke: '#0a8a4a', 'stroke-width': state._fs(widthPx + 6),
@@ -2775,19 +2775,21 @@
     if (state.inProgress) {
       const ip = state.inProgress;
       if (ip.kind === 'rect') {
-        // Click-first-corner / click-opposite-corner preview. Drawn as a
-        // dashed rectangle with dimension labels on two edges.
+        // Click-first-corner / click-opposite-corner preview. Drawn solid
+        // (not dashed) and with a strong fill so the user can clearly see
+        // what's being drawn, plus a small marker at the captured corner.
         const a = ip.from, b = ip.to;
         const r = {
           x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
           w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
         };
         const color = state.tool === 'room' ? '#b58900' : '#2266dd';
-        const fillCol = state.tool === 'room' ? 'rgba(181,137,0,0.10)' : 'rgba(34,102,221,0.10)';
+        const fillCol = state.tool === 'room' ? 'rgba(181,137,0,0.18)' : 'rgba(34,102,221,0.18)';
         const labelCol = state.tool === 'room' ? '#8a5d00' : '#1a4ea0';
         gOverlay.appendChild(svgEl('rect', {
           x: r.x, y: r.y, width: r.w, height: r.h,
-          fill: fillCol, stroke: color, 'stroke-width': state._fs(2.5), 'stroke-dasharray': '8 4',
+          fill: fillCol, stroke: color, 'stroke-width': state._fs(3.5),
+          'stroke-dasharray': state._fs(10) + ' ' + state._fs(5),
           'pointer-events': 'none',
         }));
         if (r.w > 0 && r.h > 0) {
@@ -2806,7 +2808,9 @@
             gOverlay.appendChild(t);
           }
         }
-        gOverlay.appendChild(svgEl('circle', { cx: a.x, cy: a.y, r: state._fs(3.5), fill: color }));
+        // Mark the captured first corner so the user has a visual anchor.
+        gOverlay.appendChild(svgEl('circle', { cx: a.x, cy: a.y, r: state._fs(5), fill: 'none', stroke: color, 'stroke-width': state._fs(2.5) }));
+        gOverlay.appendChild(svgEl('circle', { cx: a.x, cy: a.y, r: state._fs(2), fill: color }));
       } else if (ip.kind === 'room') {
         const pts = ip.polyline.slice();
         if (ip.to) pts.push(ip.to);
@@ -2985,7 +2989,8 @@
     const snappedCursor = state.hoverSnap || applySnap(state.cursor);
     statusCursor.textContent =
       'Pos x: ' + Math.round(snappedCursor.x) + ' y: ' + Math.round(snappedCursor.y) + ' cm';
-    statusTool.textContent = toolName(state.tool);
+    statusTool.textContent = toolName(state.tool)
+      + ((state.rectMode && (state.tool === 'wall' || state.tool === 'room')) ? ' · REKTANGEL' : '');
     statusMode.textContent = statusModeText();
     const vb = svg.viewBox.baseVal;
     statusZoom.textContent = 'Visning ' + Math.round(vb.width) + ' x ' + Math.round(vb.height) + ' cm';
@@ -3867,12 +3872,12 @@
       const ip = state.inProgress;
       if (ip.kind === 'wall') {
         const base = draftSegmentText('Vegg', ip.from, ip.to, true);
-        const ep = state.endpointMatches && state.endpointMatches.length;
+        const tg = state.tightMatches && state.tightMatches.length;
         const lg = state.matchedWallsLength != null && state.matchedWalls && state.matchedWalls.length;
-        if (ep || lg) {
+        if (tg || lg) {
           const parts = [];
-          if (ep) parts.push('kobling: ' + state.endpointMatches.length + ' vegg' + (state.endpointMatches.length === 1 ? '' : 'er'));
-          if (lg) parts.push('match: ' + formatLength(state.matchedWallsLength, state.units) + ' (' + state.matchedWalls.length + ' vegg' + (state.matchedWalls.length === 1 ? '' : 'er') + ')');
+          if (tg) parts.push('treff: ' + state.tightMatches.length + ' vegg' + (state.tightMatches.length === 1 ? '' : 'er'));
+          if (lg) parts.push('nær: ' + formatLength(state.matchedWallsLength, state.units) + ' (' + state.matchedWalls.length + ' vegg' + (state.matchedWalls.length === 1 ? '' : 'er') + ')');
           return base + ' · ' + parts.join(' · ');
         }
         return base;
@@ -4031,7 +4036,7 @@
     state.measureEnd = null;
     state.matchedWalls = [];
     state.matchedWallsLength = null;
-    state.endpointMatches = [];
+    state.tightMatches = [];
     state.rectFirst = null;
     hideContextMenu();
     syncToolButtons();
@@ -4158,29 +4163,35 @@
     }
     if (state.inProgress) {
       state.inProgress.to = applySnap(constrainFor(cm));
-      // Match-length hint for wall chain drawing: highlight existing walls
-      // whose length is within snap of the current segment (orange) and
-      // walls that share an endpoint with the segment's start (green).
+      // Match-length hint for wall chain drawing: walls within ±10cm of the
+      // current segment go orange; walls within snap go green (a tighter
+      // match means the user is "on" the right length).
       if (state.inProgress.kind === 'wall' && state.inProgress.from) {
         const cur = state.inProgress.to;
         const segLen = Math.hypot(cur.x - state.inProgress.from.x, cur.y - state.inProgress.from.y);
-        const matches = segLen > state.snap ? findWallsByLength(segLen) : [];
-        state.matchedWalls = matches.slice(0, 4).map(m => m.wall.id);
-        state.matchedWallsLength = matches.length ? matches[0].length : null;
-        state.endpointMatches = findWallsAtPoint(state.inProgress.from).map(w => w.id);
+        if (segLen > state.snap) {
+          const { tight, loose } = findWallsByLength(segLen);
+          state.tightMatches = tight.slice(0, 4).map(m => m.wall.id);
+          state.matchedWalls = loose.slice(0, 4).map(m => m.wall.id);
+          state.matchedWallsLength = loose.length ? loose[0].length : null;
+        } else {
+          state.tightMatches = [];
+          state.matchedWalls = [];
+          state.matchedWallsLength = null;
+        }
       } else {
+        state.tightMatches = [];
         state.matchedWalls = [];
         state.matchedWallsLength = null;
-        state.endpointMatches = [];
       }
       requestRender();
       return;
     }
     // Cleared once the user stops drawing so the highlight doesn't linger.
-    if ((state.matchedWalls && state.matchedWalls.length) || (state.endpointMatches && state.endpointMatches.length)) {
+    if ((state.matchedWalls && state.matchedWalls.length) || (state.tightMatches && state.tightMatches.length)) {
       state.matchedWalls = [];
       state.matchedWallsLength = null;
-      state.endpointMatches = [];
+      state.tightMatches = [];
       requestRender();
     }
     // Sidebar hover sync: highlight the sidebar row for whatever the cursor
@@ -4356,8 +4367,9 @@
         const a = state.rectFirst;
         state.rectFirst = null;
         state.inProgress = null;
-        if (Math.abs(p.x - a.x) < state.snap || Math.abs(p.y - a.y) < state.snap) {
-          showNotice('Rektangelet er for lite — Esc avbryter.');
+        // Need at least a few cm in each dimension to form a real rectangle.
+        if (Math.hypot(p.x - a.x, p.y - a.y) < Math.max(state.snap, 2)) {
+          showNotice('Rektangelet er for lite — klikk lenger unna, eller Esc for å avbryte.');
           requestRender();
           return;
         }
@@ -4402,8 +4414,8 @@
         const a = state.rectFirst;
         state.rectFirst = null;
         state.inProgress = null;
-        if (Math.abs(p.x - a.x) < state.snap || Math.abs(p.y - a.y) < state.snap) {
-          showNotice('Rektangelet er for lite — Esc avbryter.');
+        if (Math.hypot(p.x - a.x, p.y - a.y) < Math.max(state.snap, 2)) {
+          showNotice('Rektangelet er for lite — klikk lenger unna, eller Esc for å avbryte.');
           requestRender();
           return;
         }
@@ -6066,7 +6078,7 @@
     e.target.value = '';
   });
 
-  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; state.matchedWalls = []; state.endpointMatches = []; requestRender(); });
+  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; state.matchedWalls = []; state.tightMatches = []; requestRender(); });
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     // Right-click while drawing a wall chain cancels the chain (no 5th wall starts).
@@ -6113,7 +6125,7 @@
   window.__floorplanify = {
     state, lengthCm, formatLength, formatArea, openingWidth, snapCm, pointToSegment,
     lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
-    findWallFaces, findRoomFaceAt, findWallsByLength, findWallsAtPoint, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
+    findWallFaces, findRoomFaceAt, findWallsByLength, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
     constrainFor, orthogonalCornerPoint, applySelectedDimensions, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
