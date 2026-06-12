@@ -5415,12 +5415,7 @@
     svgOut.setAttribute('data-scale', String(s));
     function appendPlanExtentDimensions() {
       if (!pageMode || bb.w <= 0 || bb.h <= 0) return;
-      const planLeft = viewX + PRINT_PAGE_MARGIN_CM * s;
-      const planRight = viewX + viewW - PRINT_PAGE_MARGIN_CM * s;
-      const planTop = viewY + PRINT_PAGE_MARGIN_CM * s;
-      const planBottom = footerTopY - (PRINT_ANNOTATION_PAPER_H_CM + PRINT_PLAN_FOOTER_GAP_CM) * s;
       const offset = mm(5);
-      const pad = mm(2.2);
       const tick = mm(2.4);
       const stroke = '#475467';
       const textStroke = '#fff';
@@ -5439,7 +5434,6 @@
       }
       const hLabel = formatLength(bb.w, state.units);
       const vLabel = formatLength(bb.h, state.units);
-      const labelClear = mm(4.2);
 
       function appendHorizontalDimension(dimY, side) {
         const hSign = side === 'bottom' ? 1 : -1;
@@ -5494,14 +5488,10 @@
       }
 
       const belowY = bb.y + bb.h + offset;
-      const aboveY = bb.y - offset;
-      appendHorizontalDimension(aboveY - labelClear >= planTop + pad ? aboveY : bb.y + offset, 'top');
-      appendHorizontalDimension(belowY + labelClear <= planBottom - pad ? belowY : bb.y + bb.h - offset, 'bottom');
+      appendHorizontalDimension(belowY, 'bottom');
 
-      const rightX = bb.x + bb.w + offset;
       const leftX = bb.x - offset;
-      appendVerticalDimension(leftX - labelClear >= planLeft + pad ? leftX : bb.x + offset, 'left');
-      appendVerticalDimension(rightX + labelClear <= planRight - pad ? rightX : bb.x + bb.w - offset, 'right');
+      appendVerticalDimension(leftX, 'left');
       svgOut.appendChild(group);
     }
     // White background covering the full page so the plan isn't transparent
