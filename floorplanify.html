@@ -5415,12 +5415,7 @@
     svgOut.setAttribute('data-scale', String(s));
     function appendPlanExtentDimensions() {
       if (!pageMode || bb.w <= 0 || bb.h <= 0) return;
-      const planLeft = viewX + PRINT_PAGE_MARGIN_CM * s;
-      const planRight = viewX + viewW - PRINT_PAGE_MARGIN_CM * s;
-      const planTop = viewY + PRINT_PAGE_MARGIN_CM * s;
-      const planBottom = footerTopY - (PRINT_ANNOTATION_PAPER_H_CM + PRINT_PLAN_FOOTER_GAP_CM) * s;
       const offset = mm(5);
-      const pad = mm(2.2);
       const tick = mm(2.4);
       const stroke = '#475467';
       const textStroke = '#fff';
@@ -5437,55 +5432,66 @@
           ? { x: x - h / 2, y: y - w / 2, w: h, h: w }
           : { x: x - w / 2, y: y - h / 2, w, h });
       }
-      const belowY = bb.y + bb.h + offset;
-      const aboveY = bb.y - offset;
-      const canBelow = belowY <= planBottom - pad;
-      const canAbove = aboveY >= planTop + pad;
-      const dimY = canBelow ? belowY : (canAbove ? aboveY : bb.y + bb.h - offset);
-      const hSign = dimY >= bb.y + bb.h / 2 ? 1 : -1;
       const hLabel = formatLength(bb.w, state.units);
-      group.appendChild(svgEl('line', { x1: bb.x, y1: dimY, x2: bb.x + bb.w, y2: dimY, stroke, 'stroke-width': mm(0.16) }));
-      for (const x of [bb.x, bb.x + bb.w]) {
-        const edgeY = hSign > 0 ? bb.y + bb.h : bb.y;
-        group.appendChild(svgEl('line', { x1: x, y1: edgeY, x2: x, y2: dimY + hSign * tick, stroke, 'stroke-width': mm(0.12), 'stroke-dasharray': mm(0.8) + ' ' + mm(0.55) }));
-        group.appendChild(svgEl('line', { x1: x, y1: dimY - tick, x2: x, y2: dimY + tick, stroke, 'stroke-width': mm(0.16) }));
-      }
-      const hLabelY = dimY + hSign * mm(3.6);
-      const hText = svgEl('text', {
-        x: bb.x + bb.w / 2, y: hLabelY,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': pt(labelFont), fill: '#111827', 'font-weight': '750',
-        stroke: textStroke, 'stroke-width': mm(0.65), 'paint-order': 'stroke fill',
-      });
-      hText.textContent = hLabel;
-      group.appendChild(hText);
-      reserveLabelBox(bb.x + bb.w / 2, hLabelY, hLabel, false);
-
-      const rightX = bb.x + bb.w + offset;
-      const leftX = bb.x - offset;
-      const canRight = rightX <= planRight - pad;
-      const canLeft = leftX >= planLeft + pad;
-      const dimX = canRight ? rightX : (canLeft ? leftX : bb.x + bb.w - offset);
-      const vSign = dimX >= bb.x + bb.w / 2 ? 1 : -1;
       const vLabel = formatLength(bb.h, state.units);
-      group.appendChild(svgEl('line', { x1: dimX, y1: bb.y, x2: dimX, y2: bb.y + bb.h, stroke, 'stroke-width': mm(0.16) }));
-      for (const y of [bb.y, bb.y + bb.h]) {
-        const edgeX = vSign > 0 ? bb.x + bb.w : bb.x;
-        group.appendChild(svgEl('line', { x1: edgeX, y1: y, x2: dimX + vSign * tick, y2: y, stroke, 'stroke-width': mm(0.12), 'stroke-dasharray': mm(0.8) + ' ' + mm(0.55) }));
-        group.appendChild(svgEl('line', { x1: dimX - tick, y1: y, x2: dimX + tick, y2: y, stroke, 'stroke-width': mm(0.16) }));
+
+      function appendHorizontalDimension(dimY, side) {
+        const hSign = side === 'bottom' ? 1 : -1;
+        group.appendChild(svgEl('line', {
+          x1: bb.x, y1: dimY, x2: bb.x + bb.w, y2: dimY,
+          stroke, 'stroke-width': mm(0.16),
+          'data-dimension-axis': 'x', 'data-dimension-side': side,
+        }));
+        for (const x of [bb.x, bb.x + bb.w]) {
+          const edgeY = hSign > 0 ? bb.y + bb.h : bb.y;
+          group.appendChild(svgEl('line', { x1: x, y1: edgeY, x2: x, y2: dimY + hSign * tick, stroke, 'stroke-width': mm(0.12), 'stroke-dasharray': mm(0.8) + ' ' + mm(0.55) }));
+          group.appendChild(svgEl('line', { x1: x, y1: dimY - tick, x2: x, y2: dimY + tick, stroke, 'stroke-width': mm(0.16) }));
+        }
+        const hLabelY = dimY + hSign * mm(3.6);
+        const hText = svgEl('text', {
+          x: bb.x + bb.w / 2, y: hLabelY,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': pt(labelFont), fill: '#111827', 'font-weight': '750',
+          stroke: textStroke, 'stroke-width': mm(0.65), 'paint-order': 'stroke fill',
+          'data-dimension-label': 'x', 'data-dimension-side': side,
+        });
+        hText.textContent = hLabel;
+        group.appendChild(hText);
+        reserveLabelBox(bb.x + bb.w / 2, hLabelY, hLabel, false);
       }
-      const vLabelX = dimX + vSign * mm(3.6);
-      const vLabelY = bb.y + bb.h / 2;
-      const vText = svgEl('text', {
-        x: vLabelX, y: vLabelY,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': pt(labelFont), fill: '#111827', 'font-weight': '750',
-        stroke: textStroke, 'stroke-width': mm(0.65), 'paint-order': 'stroke fill',
-        transform: 'rotate(-90 ' + vLabelX + ' ' + vLabelY + ')',
-      });
-      vText.textContent = vLabel;
-      group.appendChild(vText);
-      reserveLabelBox(vLabelX, vLabelY, vLabel, true);
+
+      function appendVerticalDimension(dimX, side) {
+        const vSign = side === 'right' ? 1 : -1;
+        group.appendChild(svgEl('line', {
+          x1: dimX, y1: bb.y, x2: dimX, y2: bb.y + bb.h,
+          stroke, 'stroke-width': mm(0.16),
+          'data-dimension-axis': 'y', 'data-dimension-side': side,
+        }));
+        for (const y of [bb.y, bb.y + bb.h]) {
+          const edgeX = vSign > 0 ? bb.x + bb.w : bb.x;
+          group.appendChild(svgEl('line', { x1: edgeX, y1: y, x2: dimX + vSign * tick, y2: y, stroke, 'stroke-width': mm(0.12), 'stroke-dasharray': mm(0.8) + ' ' + mm(0.55) }));
+          group.appendChild(svgEl('line', { x1: dimX - tick, y1: y, x2: dimX + tick, y2: y, stroke, 'stroke-width': mm(0.16) }));
+        }
+        const vLabelX = dimX + vSign * mm(3.6);
+        const vLabelY = bb.y + bb.h / 2;
+        const vText = svgEl('text', {
+          x: vLabelX, y: vLabelY,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': pt(labelFont), fill: '#111827', 'font-weight': '750',
+          stroke: textStroke, 'stroke-width': mm(0.65), 'paint-order': 'stroke fill',
+          transform: 'rotate(-90 ' + vLabelX + ' ' + vLabelY + ')',
+          'data-dimension-label': 'y', 'data-dimension-side': side,
+        });
+        vText.textContent = vLabel;
+        group.appendChild(vText);
+        reserveLabelBox(vLabelX, vLabelY, vLabel, true);
+      }
+
+      const belowY = bb.y + bb.h + offset;
+      appendHorizontalDimension(belowY, 'bottom');
+
+      const leftX = bb.x - offset;
+      appendVerticalDimension(leftX, 'left');
       svgOut.appendChild(group);
     }
     // White background covering the full page so the plan isn't transparent
