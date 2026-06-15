@@ -1214,9 +1214,7 @@
     state.openingPreview = null;
     state.measureStart = null;
     state.measureEnd = null;
-    state.matchedWalls = [];
-    state.matchedWallsLength = null;
-    state.tightMatches = [];
+    clearLengthMatchHints();
     state.rectFirst = null;
     document.getElementById('projectName').value = state.projectName;
     document.getElementById('roomInfo').value = state.roomInfo;
@@ -1397,9 +1395,6 @@
     return clampOpeningWidthForWall(openingWidth(o), wall);
   }
   function snapCm(px, snap) { return Math.round(px / snap) * snap; }
-  // Find existing walls with length within (snap) of the given length, used to
-  // give a visual hint when the user is drawing a wall that could match one
-  // already placed (typical use: parallel walls of equal length).
   // Find existing walls with length within the given tolerance. Used to
   // give a visual hint when the user is drawing a wall that could match one
   // already placed (typical use: parallel walls of equal length).
@@ -1441,6 +1436,20 @@
       if (o.wallId === wall.id && o.id !== excludeId) out.push({ t: o.t, openingId: o.id });
     }
     return out;
+  }
+  function openingPlacementForPointer(cm, type) {
+    const wall = hitWall(cm);
+    if (!wall) return null;
+    const rawT = pointToSegmentT(cm, wall.a, wall.b);
+    const tol = 3 / pxPerCm();
+    const snapT = snapTOnWall(wall, rawT, null, tol);
+    return {
+      wall,
+      t: snapT != null ? snapT : rawT,
+      tSnap: snapT != null,
+      type,
+      width: openingDefaultWidth(type),
+    };
   }
 
   function pointToSegment(p, a, b) {
@@ -1882,7 +1891,10 @@
       }
     } else if (type === 'opening') {
       copy = addOpening(src.wallId, Math.max(0.08, Math.min(0.92, src.t + 0.08)), src.type, openingWidth(src));
-      if (copy) copy.swing = src.swing || 'left';
+      if (copy) {
+        copy.swing = src.swing || 'left';
+        copy.mirror = src.mirror === true;
+      }
     } else if (type === 'stair') {
       copy = addStair({ x: src.rect.x + off, y: src.rect.y + off, w: src.rect.w, h: src.rect.h }, src.dir);
     } else if (type === 'guide') {
@@ -4025,6 +4037,11 @@
       syncCommandButtons();
     }
   }
+  function clearLengthMatchHints() {
+    state.matchedWalls = [];
+    state.matchedWallsLength = null;
+    state.tightMatches = [];
+  }
 
   function setTool(t) {
     state.tool = t;
@@ -4034,9 +4051,7 @@
     state.openingPreview = null;
     state.measureStart = null;
     state.measureEnd = null;
-    state.matchedWalls = [];
-    state.matchedWallsLength = null;
-    state.tightMatches = [];
+    clearLengthMatchHints();
     state.rectFirst = null;
     hideContextMenu();
     syncToolButtons();
@@ -4126,6 +4141,22 @@
           guide.a = { x: dragSelection.originalGuide.a.x + dx, y: dragSelection.originalGuide.a.y + dy };
           guide.b = { x: dragSelection.originalGuide.b.x + dx, y: dragSelection.originalGuide.b.y + dy };
         }
+      } else if (dragSelection.kind === 'opening') {
+        const opening = state.openings.find(o => o.id === dragSelection.id);
+        const wall = opening ? state.walls.find(w => w.id === opening.wallId) : null;
+        if (opening && wall) {
+          const rawT = pointToSegmentT(cm, wall.a, wall.b);
+          const tol = 3 / pxPerCm();
+          const snapT = snapTOnWall(wall, rawT, opening.id, tol);
+          const width = openingWidth(opening);
+          const nextT = snapT != null ? snapT : rawT;
+          const clampedT = clampOpeningTForWall(nextT, width, wall);
+          if (Math.abs(clampedT - opening.t) > 0.0001) {
+            dragSelection.moved = true;
+            markAutosaveDirty();
+            opening.t = clampedT;
+          }
+        }
       }
       requestRender();
       return;
@@ -4175,23 +4206,17 @@
           state.matchedWalls = loose.slice(0, 4).map(m => m.wall.id);
           state.matchedWallsLength = loose.length ? loose[0].length : null;
         } else {
-          state.tightMatches = [];
-          state.matchedWalls = [];
-          state.matchedWallsLength = null;
+          clearLengthMatchHints();
         }
       } else {
-        state.tightMatches = [];
-        state.matchedWalls = [];
-        state.matchedWallsLength = null;
+        clearLengthMatchHints();
       }
       requestRender();
       return;
     }
     // Cleared once the user stops drawing so the highlight doesn't linger.
     if ((state.matchedWalls && state.matchedWalls.length) || (state.tightMatches && state.tightMatches.length)) {
-      state.matchedWalls = [];
-      state.matchedWallsLength = null;
-      state.tightMatches = [];
+      clearLengthMatchHints();
       requestRender();
     }
     // Sidebar hover sync: highlight the sidebar row for whatever the cursor
@@ -4212,16 +4237,16 @@
       state.hoveredId = newHoverId;
     }
     if (state.tool === 'door' || state.tool === 'window') {
-      const wall = hitWall(cm);
-      if (wall) {
-        const rawT = pointToSegmentT(cm, wall.a, wall.b);
-        // Snap tolerance: ~3 cm worth of wall length, scaled by current zoom so the
-        // snap feels consistent at any zoom level.
-        const tol = 3 / pxPerCm();
-        const snapT = snapTOnWall(wall, rawT, null, tol);
-        const t = snapT != null ? snapT : rawT;
-        const tSnap = snapT != null;
-        state.openingPreview = { wallId: wall.id, t, type: state.tool, swing: 'left', width: openingDefaultWidth(state.tool), tSnap };
+      const placement = openingPlacementForPointer(cm, state.tool);
+      if (placement) {
+        state.openingPreview = {
+          wallId: placement.wall.id,
+          t: placement.t,
+          type: placement.type,
+          swing: 'left',
+          width: placement.width,
+          tSnap: placement.tSnap,
+        };
       } else {
         state.openingPreview = null;
       }
@@ -4269,7 +4294,18 @@
       }
       const op = hitOpening(cm);
       if (op) {
+        const redoBefore = redoStack.slice();
+        snapshot();
         state.selection = { type: 'opening', id: op.id };
+        dragSelection = {
+          kind: 'opening',
+          snapshotTaken: true,
+          redoBefore: redoBefore,
+          moved: false,
+          id: op.id,
+          startCm: cm,
+          originalT: op.t,
+        };
         requestRender();
         return;
       }
@@ -4468,11 +4504,10 @@
       return;
     }
     if (tool === 'door' || tool === 'window') {
-      const wall = hitWall(cm);
-      if (wall) {
+      const placement = openingPlacementForPointer(cm, tool);
+      if (placement) {
         snapshot();
-        const t = pointToSegmentT(cm, wall.a, wall.b);
-        addOpening(wall.id, t, tool, openingDefaultWidth(tool));
+        addOpening(placement.wall.id, placement.t, tool, placement.width);
         requestRender();
       }
       return;
@@ -4714,6 +4749,7 @@
       addRoom(state.inProgress.polyline, 'Rom ' + (state.rooms.length + 1));
     }
     state.inProgress = null;
+    clearLengthMatchHints();
     requestRender();
     return true;
   }
@@ -4789,7 +4825,7 @@
     requestRender();
   }
   function zoomFit() {
-    if (state.walls.length === 0 && state.rooms.length === 0 && state.stairs.length === 0) {
+    if (!currentPlanHasContent()) {
       const h = 800;
       const w = h * canvasAspect();
       setViewBox(-w / 2, -h / 2, w, h);
@@ -6078,7 +6114,7 @@
     e.target.value = '';
   });
 
-  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; state.matchedWalls = []; state.tightMatches = []; requestRender(); });
+  svg.addEventListener('mouseleave', () => { state.hoverSnap = null; state.openingPreview = null; clearLengthMatchHints(); requestRender(); });
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     // Right-click while drawing a wall chain cancels the chain (no 5th wall starts).
@@ -6126,7 +6162,7 @@
     state, lengthCm, formatLength, formatArea, openingWidth, snapCm, pointToSegment,
     lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
     findWallFaces, findRoomFaceAt, findWallsByLength, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
-    constrainFor, orthogonalCornerPoint, applySelectedDimensions, drawOpening,
+    constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
   };
