@@ -50,6 +50,9 @@ jobs:
           done
           echo "all required element ids present"
 
+      - name: Run smoke tests
+        run: node tests/smoke.test.js
+
   lint-markdown:
     name: Lint markdown
     runs-on: ubuntu-latest
