@@ -71,7 +71,7 @@ rendering — no build step, no framework, no install.
 
 ## Files / Filer
 
-```
+```text
 floorplanify.html     Everything: HTML, CSS, JavaScript
 docs/                 Design spec and implementation plan
 .github/              CI workflow, issue templates

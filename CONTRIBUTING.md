@@ -47,7 +47,7 @@ __floorplanify.zoomFit();
 Short imperative subject, ~50 chars max. Body explains why, not what.
 Example:
 
-```
+```text
 feat(door): add mirror flag so hinge can be on either end
 
 Lets the user put the hinge on the +t side of the opening so the
