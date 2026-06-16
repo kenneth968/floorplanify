@@ -7,6 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+
 - **Right-click to cancel an in-progress wall chain.** No more accidental
   5th wall when you finish drawing 3–4 walls. Right-click during a chain
   snapshots, clears the in-progress state, and shows "Avbrutt kjede."
@@ -47,6 +48,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   active tool can be switched without dragging back to the toolbar.
 
 ### Changed
+
 - `drawOpening()` now uses a small hinge dot, 2-line window convention,
   and a 90° arc whose direction follows `swing` AND `mirror`. The
   in-screen render and the print SVG share the same geometry logic.
@@ -58,6 +60,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exposed on `window.__floorplanify` for console testing.
 
 ### Migration notes
+
 - Saved JSON files load without changes. Openings without a `mirror` key
   default to `false` (hinge on the start of the opening).
 - Sidebar `sections.collapse` preferences stay in `localStorage` under
@@ -67,7 +70,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Earlier development versions. Tagged commits available in git history.
 
-### Added
+### Added in 0.5.x
+
 - Room tool creates boundary walls, snap indicator, live length+angle.
 - Export sizing and title block fix.
 - Rooms with m², doors/windows, zoom/pan, multi-select, JSON save/load.
