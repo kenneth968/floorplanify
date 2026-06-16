@@ -4086,6 +4086,15 @@
     const useOrtho = (state.ortho || state.shiftDown) && !use45;
     return constrainPoint(p, from, useOrtho, use45);
   }
+  function rectCornerPoint(p) {
+    // Rectangle mode needs the actual opposite corner; 90/45-degree wall
+    // constraints collapse the preview into a line.
+    return applySnap(p);
+  }
+  function rectTooSmall(a, b) {
+    const min = Math.max(state.snap, 2);
+    return Math.abs(b.x - a.x) < min || Math.abs(b.y - a.y) < min;
+  }
 
   svg.addEventListener('mousemove', (evt) => {
     const cm = clientToCm(evt);
@@ -4210,7 +4219,7 @@
       return;
     }
     if (state.inProgress) {
-      state.inProgress.to = applySnap(constrainFor(cm));
+      state.inProgress.to = state.inProgress.kind === 'rect' ? rectCornerPoint(cm) : applySnap(constrainFor(cm));
       // Match-length hint for wall chain drawing: walls within ±10cm of the
       // current segment go orange; walls within snap go green (a tighter
       // match means the user is "on" the right length).
@@ -4410,7 +4419,7 @@
     if (tool === 'wall') {
       // Rect mode: click first corner, click opposite corner → 4 walls.
       if (state.rectMode) {
-        const p = applySnap(constrainFor(cm));
+        const p = rectCornerPoint(cm);
         if (!state.rectFirst) {
           state.rectFirst = clonePt(p);
           state.inProgress = { kind: 'rect', from: clonePt(p), to: clonePt(p) };
@@ -4421,7 +4430,7 @@
         state.rectFirst = null;
         state.inProgress = null;
         // Need at least a few cm in each dimension to form a real rectangle.
-        if (Math.hypot(p.x - a.x, p.y - a.y) < Math.max(state.snap, 2)) {
+        if (rectTooSmall(a, p)) {
           showNotice('Rektangelet er for lite — klikk lenger unna, eller Esc for å avbryte.');
           requestRender();
           return;
@@ -4457,7 +4466,7 @@
     if (tool === 'room') {
       // Rect mode: click first corner, click opposite corner → a 4-point room.
       if (state.rectMode) {
-        const p = applySnap(constrainFor(cm));
+        const p = rectCornerPoint(cm);
         if (!state.rectFirst) {
           state.rectFirst = clonePt(p);
           state.inProgress = { kind: 'rect', from: clonePt(p), to: clonePt(p) };
@@ -4467,7 +4476,7 @@
         const a = state.rectFirst;
         state.rectFirst = null;
         state.inProgress = null;
-        if (Math.hypot(p.x - a.x, p.y - a.y) < Math.max(state.snap, 2)) {
+        if (rectTooSmall(a, p)) {
           showNotice('Rektangelet er for lite — klikk lenger unna, eller Esc for å avbryte.');
           requestRender();
           return;
