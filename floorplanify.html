@@ -1651,6 +1651,7 @@
         for (const o of state.openings) {
           if (o.wallId === w.id) {
             if (o.t > t) { o.wallId = newW.id; o.t = (o.t - t) / (1 - t); }
+            else { o.t = o.t / t; }
           }
         }
       }
@@ -3634,6 +3635,14 @@
       el.dataset.sideField === field
     ) || null;
   }
+  function applySidebarHover(type, id) {
+    if (!objectList) return;
+    objectList.querySelectorAll('.object-row.hover, .wall-pill.hover').forEach(el => el.classList.remove('hover'));
+    if (!type || !id) return;
+    Array.from(objectList.querySelectorAll('[data-type][data-id]'))
+      .filter(el => el.dataset.type === type && el.dataset.id === id)
+      .forEach(el => (el.closest('.object-row') || el).classList.add('hover'));
+  }
   function captureSidebarFocus() {
     const active = document.activeElement;
     if (!objectList || !active || !objectList.contains(active) || !active.dataset.sideField) return null;
@@ -4249,18 +4258,14 @@
     // is currently over, without re-rendering the sidebar.
     const hoveredWall = hitWall(cm);
     const hoveredOpening = hoveredWall ? null : hitOpening(cm);
-    const newHoverId = hoveredWall ? 'wall:' + hoveredWall.id : (hoveredOpening ? 'opening:' + hoveredOpening.id : '');
-    if (newHoverId !== state.hoveredId) {
+    const hoverType = hoveredWall ? 'wall' : (hoveredOpening ? 'opening' : '');
+    const hoverId = hoveredWall ? hoveredWall.id : (hoveredOpening ? hoveredOpening.id : '');
+    const hoverKey = hoverType + '\u0000' + hoverId;
+    if (hoverKey !== state.hoveredId) {
       if (objectList) {
-        objectList.querySelectorAll('[data-side-id].hover').forEach(el => el.classList.remove('hover'));
-        if (newHoverId) {
-          const [type, id] = newHoverId.split(':');
-          objectList.querySelectorAll('[data-side-type="' + type + '"][data-side-id="' + id + '"]').forEach(el => {
-            el.closest('.object-row')?.classList.add('hover');
-          });
-        }
+        applySidebarHover(hoverType, hoverId);
       }
-      state.hoveredId = newHoverId;
+      state.hoveredId = hoverKey;
     }
     if (state.tool === 'door' || state.tool === 'window') {
       const placement = openingPlacementForPointer(cm, state.tool);
@@ -4983,12 +4988,16 @@
         openingType: o.type,
         width: openingWidth(o),
         swing: o.swing || 'left',
+        mirror: o.mirror === true,
       }));
   }
   function addWallOpeningCopies(wall, item) {
     for (const c of (item.openings || [])) {
       const opening = addOpening(wall.id, c.t, c.openingType, c.width);
-      if (opening) opening.swing = c.swing || 'left';
+      if (opening) {
+        opening.swing = c.swing || 'left';
+        opening.mirror = c.mirror === true;
+      }
     }
   }
   function roomOpeningCopies(room) {
@@ -5013,6 +5022,7 @@
         openingType: o.type,
         width: openingWidth(o),
         swing: o.swing || 'left',
+        mirror: o.mirror === true,
       });
     }
     return copies;
@@ -5048,6 +5058,7 @@
         openingType: obj.type,
         width: openingWidth(obj),
         swing: obj.swing || 'left',
+        mirror: obj.mirror === true,
       };
     }
     if (type === 'stair') return { kind: 'stair', rect: Object.assign({}, obj.rect), dir: obj.dir || 'up' };
@@ -5112,7 +5123,10 @@
       const sameDirection = ptEq(wall.a, a) && ptEq(wall.b, b);
       const t = sameDirection ? c.t : 1 - c.t;
       const opening = addOpening(wall.id, t, c.openingType, c.width);
-      if (opening) opening.swing = c.swing || 'left';
+      if (opening) {
+        opening.swing = c.swing || 'left';
+        opening.mirror = c.mirror === true;
+      }
     }
   }
   function applyRoomWallTypes(room, wallTypes) {
@@ -5150,6 +5164,7 @@
       const opening = addOpening(item.wallId, item.t + pasteIndex * 0.08, item.openingType, item.width);
       if (!opening) return null;
       opening.swing = item.swing || 'left';
+      opening.mirror = item.mirror === true;
       return { type: 'opening', id: opening.id };
     }
     if (item.kind === 'stair') {
@@ -5192,6 +5207,7 @@
         const opening = addOpening(wall.id, pointToSegmentT(cm, wall.a, wall.b), item.openingType, item.width);
         if (opening) {
           opening.swing = item.swing || 'left';
+          opening.mirror = item.mirror === true;
           state.selection = { type: 'opening', id: opening.id };
           if (clip && !Array.isArray(clip)) clip.pasteCount = pasteIndex;
           else state.clipboard = { items, pasteCount: pasteIndex };
