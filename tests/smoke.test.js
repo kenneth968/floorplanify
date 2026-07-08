@@ -21,6 +21,14 @@ function requireFunctionMatch(name, pattern, message) {
   assert.match(source, pattern, message);
 }
 
+function htmlBetween(startNeedle, endNeedle) {
+  const start = html.indexOf(startNeedle);
+  assert.notStrictEqual(start, -1, `${startNeedle} should exist`);
+  const end = html.indexOf(endNeedle, start + startNeedle.length);
+  assert.notStrictEqual(end, -1, `${endNeedle} should exist after ${startNeedle}`);
+  return html.slice(start, end);
+}
+
 requireNoMatch(
   /Find existing walls with length within \(snap\) of the given length/,
   'length-match helper should not keep the stale duplicate comment'
@@ -139,5 +147,67 @@ requireMatch(
   /function zoomFit\(\) \{\s*if \(!currentPlanHasContent\(\)\)/,
   'zoomFit should use the common content check so measurement guides are included'
 );
+
+requireMatch(
+  /id="toolRail"[\s\S]*data-tool="select"[\s\S]*data-tool="wall"[\s\S]*data-tool="room"[\s\S]*data-tool="mark"[\s\S]*data-tool="stair"[\s\S]*data-tool="door"[\s\S]*data-tool="window"[\s\S]*data-tool="pan"[\s\S]*data-tool="measure"/,
+  'primary drawing tools should live together in the left tool rail'
+);
+
+requireMatch(
+  /id="toolOptionsBar"[\s\S]*id="snap"[\s\S]*id="wallType"[\s\S]*id="stairDir"[\s\S]*id="openingWidth"[\s\S]*id="ortho"[\s\S]*id="angle45"/,
+  'drawing options should live in the contextual tool options bar'
+);
+
+requireMatch(
+  /id="viewMenuButton"[\s\S]*aria-controls="viewMenu"[\s\S]*id="viewMenu"[\s\S]*id="showGrid"[\s\S]*id="showLabels"[\s\S]*id="roomInfo"[\s\S]*id="showNorth"[\s\S]*id="zoomFit"[\s\S]*id="zoom100"/,
+  'view controls should be grouped in a compact View menu'
+);
+
+requireMatch(
+  /id="viewMenu"[^>]*role="group"[^>]*aria-labelledby="viewMenuButton"/,
+  'View flyout should expose grouped controls instead of ARIA menu semantics'
+);
+
+requireMatch(
+  /id="exportMenuButton"[\s\S]*aria-controls="exportMenu"[\s\S]*id="exportMenu"[\s\S]*id="scale"[\s\S]*id="units"[\s\S]*id="exportPdf"[\s\S]*id="exportPng"[\s\S]*id="exportSvg"[\s\S]*id="printFitInfo"/,
+  'print scale, units, export commands, and fit status should be grouped in the Export menu'
+);
+
+requireMatch(
+  /id="exportMenu"[^>]*role="group"[^>]*aria-labelledby="exportMenuButton"/,
+  'Export flyout should expose grouped controls instead of ARIA menu semantics'
+);
+
+requireNoMatch(
+  /id="(?:viewMenu|exportMenu)"[^>]*role="menu"/,
+  'chrome flyouts should not use ARIA menu roles for mixed form controls'
+);
+
+requireMatch(
+  /id="objectSidebar"[\s\S]*id="selectionEditor"[\s\S]*id="objectList"/,
+  'selection dimensions editor should live in the object sidebar instead of the top chrome'
+);
+
+const topToolbarSource = htmlBetween('<div id="toolbar"', '<div id="toolOptionsBar"');
+assert.doesNotMatch(
+  topToolbarSource,
+  /data-tool="/,
+  'top toolbar should not contain drawing tool buttons after the redesign'
+);
+
+const chromeMenuSource = htmlBetween('  function setupChromeMenus() {', '  function syncOpeningWidthInput() {');
+assert.doesNotMatch(
+  chromeMenuSource,
+  /document\.addEventListener\('keydown'/,
+  'chrome menu Escape handling should stay in the main keyboard path'
+);
+
+const keyboardSource = htmlBetween('  // === KEYBOARD ===', '    const k = evt.key.toLowerCase();');
+const menuEscapeIndex = keyboardSource.indexOf("evt.key === 'Escape' && closeOpenChromeMenus()");
+const inputGuardIndex = keyboardSource.indexOf("evt.target.tagName === 'INPUT'");
+const drawingEscapeIndex = keyboardSource.indexOf("if (evt.key === 'Escape') {", menuEscapeIndex + 1);
+assert.notStrictEqual(menuEscapeIndex, -1, 'main keyboard handler should close open chrome menus on Escape');
+assert(menuEscapeIndex < inputGuardIndex, 'chrome menu Escape should run before form-field keyboard guard');
+assert(menuEscapeIndex < drawingEscapeIndex, 'chrome menu Escape should run before drawing/selection Escape behavior');
 
 console.log('smoke tests passed');
