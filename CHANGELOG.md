@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Optional Carpentry handoff.** The secondary
+  `Integrasjoner > Eksporter til Carpentry` action downloads a deterministic
+  `*.carpentry.json` file for explicit import. Floorplanify remains the
+  standalone floorplan app: the handoff does not launch Blender or create 3D,
+  and Carpentry compatibility blockers do not affect normal JSON, PDF, PNG, or
+  SVG exports.
 - **Right-click to cancel an in-progress wall chain.** No more accidental
   5th wall when you finish drawing 3–4 walls. Right-click during a chain
   snapshots, clears the in-progress state, and shows "Avbrutt kjede."
