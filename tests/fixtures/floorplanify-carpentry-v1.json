@@ -1,0 +1,103 @@
+{
+  "format": "floorplanify.carpentry",
+  "version": 1,
+  "source": {
+    "application": "Floorplanify",
+    "planVersion": 3,
+    "units": "cm",
+    "xAxis": "right",
+    "yAxis": "down",
+    "origin": "floorplan-canvas"
+  },
+  "project": {
+    "name": "Canonical 5.90 m x 3.90 m room",
+    "walls": [
+      {
+        "id": "wall-1",
+        "kind": "exterior",
+        "start": {
+          "x": 0,
+          "y": 0
+        },
+        "end": {
+          "x": 590,
+          "y": 0
+        }
+      },
+      {
+        "id": "wall-2",
+        "kind": "exterior",
+        "start": {
+          "x": 590,
+          "y": 0
+        },
+        "end": {
+          "x": 590,
+          "y": 390
+        }
+      },
+      {
+        "id": "wall-3",
+        "kind": "exterior",
+        "start": {
+          "x": 590,
+          "y": 390
+        },
+        "end": {
+          "x": 0,
+          "y": 390
+        }
+      },
+      {
+        "id": "wall-4",
+        "kind": "exterior",
+        "start": {
+          "x": 0,
+          "y": 390
+        },
+        "end": {
+          "x": 0,
+          "y": 0
+        }
+      }
+    ],
+    "rooms": [
+      {
+        "id": "room-1",
+        "name": "Room 1",
+        "points": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 590,
+            "y": 0
+          },
+          {
+            "x": 590,
+            "y": 390
+          },
+          {
+            "x": 0,
+            "y": 390
+          }
+        ]
+      }
+    ],
+    "openings": [
+      {
+        "id": "door-1",
+        "kind": "door",
+        "wallId": "wall-1",
+        "centerT": 0.5,
+        "widthCm": 90,
+        "swing": "left",
+        "mirrored": false
+      }
+    ],
+    "stairs": [],
+    "guides": []
+  },
+  "diagnostics": []
+}

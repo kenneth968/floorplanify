@@ -1,0 +1,30 @@
+{
+  "format": "floorplanify.carpentry",
+  "version": 1,
+  "source": {
+    "application": "Floorplanify",
+    "planVersion": 3,
+    "units": "cm",
+    "xAxis": "right",
+    "yAxis": "down",
+    "origin": "floorplan-canvas"
+  },
+  "project": {
+    "name": "Nested exterior shells",
+    "walls": [
+      {"id": "wall-1", "kind": "exterior", "start": {"x": 0, "y": 0}, "end": {"x": 600, "y": 0}},
+      {"id": "wall-2", "kind": "exterior", "start": {"x": 600, "y": 0}, "end": {"x": 600, "y": 400}},
+      {"id": "wall-3", "kind": "exterior", "start": {"x": 600, "y": 400}, "end": {"x": 0, "y": 400}},
+      {"id": "wall-4", "kind": "exterior", "start": {"x": 0, "y": 400}, "end": {"x": 0, "y": 0}},
+      {"id": "wall-5", "kind": "exterior", "start": {"x": 200, "y": 100}, "end": {"x": 400, "y": 100}},
+      {"id": "wall-6", "kind": "exterior", "start": {"x": 400, "y": 100}, "end": {"x": 400, "y": 300}},
+      {"id": "wall-7", "kind": "exterior", "start": {"x": 400, "y": 300}, "end": {"x": 200, "y": 300}},
+      {"id": "wall-8", "kind": "exterior", "start": {"x": 200, "y": 300}, "end": {"x": 200, "y": 100}}
+    ],
+    "rooms": [],
+    "openings": [],
+    "stairs": [],
+    "guides": []
+  },
+  "diagnostics": []
+}

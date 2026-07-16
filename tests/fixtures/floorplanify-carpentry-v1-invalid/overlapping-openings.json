@@ -1,0 +1,29 @@
+{
+  "format": "floorplanify.carpentry",
+  "version": 1,
+  "source": {
+    "application": "Floorplanify",
+    "planVersion": 3,
+    "units": "cm",
+    "xAxis": "right",
+    "yAxis": "down",
+    "origin": "floorplan-canvas"
+  },
+  "project": {
+    "name": "Overlapping openings",
+    "walls": [
+      {"id": "wall-1", "kind": "exterior", "start": {"x": 0, "y": 0}, "end": {"x": 590, "y": 0}},
+      {"id": "wall-2", "kind": "exterior", "start": {"x": 590, "y": 0}, "end": {"x": 590, "y": 390}},
+      {"id": "wall-3", "kind": "exterior", "start": {"x": 590, "y": 390}, "end": {"x": 0, "y": 390}},
+      {"id": "wall-4", "kind": "exterior", "start": {"x": 0, "y": 390}, "end": {"x": 0, "y": 0}}
+    ],
+    "rooms": [],
+    "openings": [
+      {"id": "door-1", "kind": "door", "wallId": "wall-1", "centerT": 0.45, "widthCm": 90, "swing": "left", "mirrored": false},
+      {"id": "door-2", "kind": "door", "wallId": "wall-1", "centerT": 0.55, "widthCm": 90, "swing": "right", "mirrored": false}
+    ],
+    "stairs": [],
+    "guides": []
+  },
+  "diagnostics": []
+}

@@ -1,0 +1,28 @@
+{
+  "format": "floorplanify.carpentry",
+  "version": 1,
+  "source": {
+    "application": "Floorplanify",
+    "planVersion": 3,
+    "units": "cm",
+    "xAxis": "right",
+    "yAxis": "down",
+    "origin": "floorplan-canvas"
+  },
+  "project": {
+    "name": "Opening with missing wall reference",
+    "walls": [
+      {"id": "wall-1", "kind": "exterior", "start": {"x": 0, "y": 0}, "end": {"x": 590, "y": 0}},
+      {"id": "wall-2", "kind": "exterior", "start": {"x": 590, "y": 0}, "end": {"x": 590, "y": 390}},
+      {"id": "wall-3", "kind": "exterior", "start": {"x": 590, "y": 390}, "end": {"x": 0, "y": 390}},
+      {"id": "wall-4", "kind": "exterior", "start": {"x": 0, "y": 390}, "end": {"x": 0, "y": 0}}
+    ],
+    "rooms": [],
+    "openings": [
+      {"id": "door-1", "kind": "door", "wallId": "wall-missing", "centerT": 0.5, "widthCm": 90, "swing": "left", "mirrored": false}
+    ],
+    "stairs": [],
+    "guides": []
+  },
+  "diagnostics": []
+}
