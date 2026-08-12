@@ -123,6 +123,27 @@ requireFunctionMatch(
   'openings pasted onto a chosen wall should restore mirrored hinge side'
 );
 
+requireFunctionMatch(
+  'duplicateObject',
+  /if \(copy\.type === 'door'\) copy\.doorStyle = openingDoorStyle\(src\)/,
+  'duplicated doors should preserve door style without adding it to windows'
+);
+
+requireFunctionMatch('wallOpeningCopies', /\.\.\.\(o\.type === 'door' \? \{ doorStyle:\s*openingDoorStyle\(o\) \} : \{\}\)/,
+  'wall clipboard copies should preserve door style only for doors');
+requireFunctionMatch('roomOpeningCopies', /\.\.\.\(o\.type === 'door' \? \{ doorStyle:\s*openingDoorStyle\(o\) \} : \{\}\)/,
+  'room clipboard copies should preserve door style only for doors');
+requireFunctionMatch('clipboardItemFor', /kind:\s*'opening'[\s\S]*\.\.\.\(obj\.type === 'door' \? \{ doorStyle:\s*openingDoorStyle\(obj\) \} : \{\}\)/,
+  'standalone opening clipboard copies should preserve door style only for doors');
+requireFunctionMatch('addWallOpeningCopies', /if \(opening\.type === 'door'\) opening\.doorStyle\s*=\s*normalizeDoorStyle\(c\.doorStyle\)/,
+  'pasted wall openings should restore door style only for doors');
+requireFunctionMatch('addRoomOpeningCopies', /if \(opening\.type === 'door'\) opening\.doorStyle\s*=\s*normalizeDoorStyle\(c\.doorStyle\)/,
+  'pasted room openings should restore door style only for doors');
+requireFunctionMatch('pasteClipboardItem', /if \(opening\.type === 'door'\) opening\.doorStyle\s*=\s*normalizeDoorStyle\(item\.doorStyle\)/,
+  'pasted standalone openings should restore door style only for doors');
+requireFunctionMatch('pasteClipboardAt', /if \(opening\.type === 'door'\) opening\.doorStyle\s*=\s*normalizeDoorStyle\(item\.doorStyle\)/,
+  'openings pasted onto a chosen wall should restore door style only for doors');
+
 requireMatch(
   /function applySidebarHover\(type,\s*id\)/,
   'sidebar hover sync should use a dataset-filtered helper for arbitrary imported ids'

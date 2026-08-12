@@ -152,6 +152,9 @@ async function currentPlan(page) {
         type: opening.type,
         width: openingWidth(opening),
         t: opening.t,
+        swing: opening.swing,
+        mirror: opening.mirror,
+        doorStyle: opening.doorStyle,
       })),
     };
   });
@@ -301,6 +304,207 @@ test('door and window placement remains visible', async ({ page }) => {
   await expect(page.locator('#exportPng')).toBeEnabled();
   await expect(page.locator('#exportSvg')).toBeEnabled();
   await page.screenshot({ path: EVIDENCE_SCREENSHOT, fullPage: true });
+});
+
+test('wide double door can be chosen before placement and survives native save load', async ({ page }) => {
+  await createRectangleRoom(page);
+  await page.getByRole('button', { name: 'Dør-verktøy' }).click();
+  await page.locator('#doorStyle').selectOption('double');
+  await page.locator('#openingWidth').fill('400');
+  await clickCanvasAtCm(page, 0, -200);
+
+  let door = (await currentPlan(page)).openings[0];
+  expect(door).toMatchObject({ type: 'door', width: 400, doorStyle: 'double' });
+
+  const carpentryOpening = await page.evaluate(() => (
+    window.__floorplanify.createCarpentryExportData().project.openings[0]
+  ));
+  expect(carpentryOpening).toMatchObject({ kind: 'door', widthCm: 400 });
+  expect(Object.keys(carpentryOpening).sort()).toEqual(
+    ['centerT', 'id', 'kind', 'mirrored', 'swing', 'wallId', 'widthCm'].sort(),
+  );
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#saveJson').click();
+  const savedText = await downloadText(await downloadPromise);
+  expect(JSON.parse(savedText)).toMatchObject({
+    doorStyle: 'double',
+    openings: [{ width: 400, doorStyle: 'double' }],
+  });
+
+  await page.locator('#clear').click();
+  await page.locator('#confirmOk').click();
+  await page.locator('#loadJsonInput').setInputFiles({
+    name: 'double-door.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(savedText),
+  });
+  await expect.poll(async () => (await currentPlan(page)).openings.length).toBe(1);
+  door = (await currentPlan(page)).openings[0];
+  expect(door).toMatchObject({ width: 400, doorStyle: 'double' });
+  await expect(page.locator('#doorStyle')).toHaveValue('double');
+});
+
+test('double door renders two leaves and matching print geometry', async ({ page }) => {
+  await createRectangleRoom(page);
+  await page.getByRole('button', { name: 'Dør-verktøy' }).click();
+  await page.locator('#doorStyle').selectOption('double');
+  await page.locator('#openingWidth').fill('400');
+  await clickCanvasAtCm(page, 0, -200);
+
+  await expect(page.locator('#layer-openings [data-door-leaf]')).toHaveCount(2);
+  await expect(page.locator('#layer-openings [data-door-swing]')).toHaveCount(2);
+  await expect(page.locator('#layer-openings [data-door-hinge]')).toHaveCount(2);
+
+  const printCounts = await page.evaluate(() => {
+    const api = window.__floorplanify;
+    const spec = api.printPageSpec();
+    const svg = api.buildPrintSvg(spec.bb, spec.scale, false, spec);
+    return {
+      leaves: svg.querySelectorAll('[data-door-leaf]').length,
+      swings: svg.querySelectorAll('[data-door-swing]').length,
+      hinges: svg.querySelectorAll('[data-door-hinge]').length,
+    };
+  });
+  expect(printCounts).toEqual({ leaves: 2, swings: 2, hinges: 2 });
+});
+
+test('double door leaf geometry is exact across wall directions and swing sides', async ({ page }) => {
+  const cases = [
+    {
+      name: 'horizontal left', wall: { a: { x: 0, y: 0 }, b: { x: 400, y: 0 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: 60 }, sweep: 1 },
+        { side: 'end', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: 60 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'horizontal right', wall: { a: { x: 0, y: 0 }, b: { x: 400, y: 0 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: -60 }, sweep: 0 },
+        { side: 'end', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: -60 }, sweep: 1 },
+      ],
+    },
+    {
+      name: 'reversed horizontal left', wall: { a: { x: 400, y: 0 }, b: { x: 0, y: 0 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: -60 }, sweep: 1 },
+        { side: 'end', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: -60 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'reversed horizontal right', wall: { a: { x: 400, y: 0 }, b: { x: 0, y: 0 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: 60 }, sweep: 0 },
+        { side: 'end', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: 60 }, sweep: 1 },
+      ],
+    },
+    {
+      name: 'vertical left', wall: { a: { x: 10, y: 20 }, b: { x: 10, y: 420 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 10, y: 160 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: -50, y: 160 }, sweep: 1 },
+        { side: 'end', hinge: { x: 10, y: 280 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: -50, y: 280 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'vertical right', wall: { a: { x: 10, y: 20 }, b: { x: 10, y: 420 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 10, y: 160 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: 70, y: 160 }, sweep: 0 },
+        { side: 'end', hinge: { x: 10, y: 280 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: 70, y: 280 }, sweep: 1 },
+      ],
+    },
+  ];
+
+  const results = await page.evaluate((geometryCases) => geometryCases.map(({ name, wall, swing }) => ({
+    name,
+    geometry: window.__floorplanify.doorLeafGeometry(wall, {
+      type: 'door', doorStyle: 'double', width: 120, t: 0.5, swing,
+    }),
+  })), cases);
+
+  for (const { name, want } of cases) {
+    expect(results.find((result) => result.name === name).geometry, name).toEqual(want);
+  }
+});
+
+test('window copy paths omit doorStyle while copied double doors preserve it', async ({ page }) => {
+  const ids = await page.evaluate(() => {
+    const api = window.__floorplanify;
+    const wall = api.addWall({ x: -450, y: 0 }, { x: 450, y: 0 }, 'ext');
+    const windowOpening = api.addOpening(wall.id, 0.2, 'window', 120);
+    const door = api.addOpening(wall.id, 0.7, 'door', 180, 'double');
+    api.render();
+    return { wallId: wall.id, windowId: windowOpening.id, doorId: door.id };
+  });
+
+  await page.locator(`[data-sidebar-action="select"][data-type="opening"][data-id="${ids.windowId}"]`).click();
+  await page.locator(`[data-sidebar-action="duplicate"][data-type="opening"][data-id="${ids.windowId}"]`).click();
+
+  const copied = await page.evaluate(({ windowId, doorId }) => {
+    const api = window.__floorplanify;
+    const duplicatedWindowId = api.state.selection.id;
+    api.state.selection = { type: 'opening', id: windowId };
+    api.copySelection();
+    api.pasteClipboard();
+    const pastedWindowId = api.state.selection.id;
+    api.state.selection = { type: 'opening', id: doorId };
+    api.copySelection();
+    api.pasteClipboard();
+    const pastedDoorId = api.state.selection.id;
+    return [duplicatedWindowId, pastedWindowId, pastedDoorId].map((id) => {
+      const opening = api.state.openings.find((candidate) => candidate.id === id);
+      return {
+        type: opening.type,
+        ownsDoorStyle: Object.prototype.hasOwnProperty.call(opening, 'doorStyle'),
+        doorStyle: opening.doorStyle,
+      };
+    });
+  }, ids);
+
+  expect(copied).toEqual([
+    { type: 'window', ownsDoorStyle: false, doorStyle: undefined },
+    { type: 'window', ownsDoorStyle: false, doorStyle: undefined },
+    { type: 'door', ownsDoorStyle: true, doorStyle: 'double' },
+  ]);
+});
+
+test('existing door converts to double without changing width or position', async ({ page }) => {
+  await createRectangleRoom(page);
+  await placeOpening(page, 'Dør-verktøy', { x: 0, y: -200 });
+  const before = (await currentPlan(page)).openings[0];
+
+  await page.getByRole('button', { name: 'Velg-verktøy' }).click();
+  await clickCanvasAtCm(page, 0, -200);
+  await page.locator('[data-side-field="mirror"]').selectOption('end');
+  const styleField = page.locator(
+    '[data-side-type="opening"][data-side-field="doorStyle"]',
+  );
+  await styleField.selectOption('double');
+
+  const after = (await currentPlan(page)).openings[0];
+  expect(after).toMatchObject({ doorStyle: 'double', width: before.width, t: before.t });
+  await expect(page.locator('[data-side-field="mirror"]')).toHaveCount(0);
+
+  await styleField.selectOption('single');
+  await expect(page.locator('[data-side-field="mirror"]')).toHaveValue('end');
+});
+
+test('legacy and invalid door styles normalize to single', async ({ page }) => {
+  const legacy = {
+    version: 3,
+    walls: [{ id: 'w1', a: { x: 0, y: 0 }, b: { x: 500, y: 0 }, type: 'ext' }],
+    rooms: [], stairs: [], guides: [],
+    openings: [
+      { id: 'o1', wallId: 'w1', t: 0.3, type: 'door', width: 90 },
+      { id: 'o2', wallId: 'w1', t: 0.7, type: 'door', width: 90, doorStyle: 'folding' },
+    ],
+  };
+  await page.locator('#loadJsonInput').setInputFiles({
+    name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)),
+  });
+  await expect.poll(async () => (await currentPlan(page)).openings.length).toBe(2);
+  expect((await currentPlan(page)).openings.map(({ doorStyle }) => doorStyle))
+    .toEqual(['single', 'single']);
 });
 
 test('undo redo remains reversible', async ({ page }) => {

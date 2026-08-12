@@ -203,6 +203,7 @@
   body:not(.tool-wall):not(.tool-room) #wallTypeWrap { display: none; }
   body:not(.tool-stair) #stairDirWrap { display: none; }
   body:not(.tool-door):not(.tool-window) #openingWidthWrap { display: none; }
+  body:not(.tool-door) #doorStyleWrap { display: none; }
   body:not(.tool-wall):not(.tool-room):not(.tool-measure) #angle45Wrap { display: none; }
   #toolRail {
     flex: 0 0 56px;
@@ -1029,6 +1030,13 @@
     <span id="openingWidthLabel">&Aring;pning B</span>
     <input type="number" id="openingWidth" min="10" step="10" inputmode="decimal" value="90">
   </label>
+  <label id="doorStyleWrap" title="Type for nye d&oslash;rer">
+    <span>D&oslash;rtype</span>
+    <select id="doorStyle">
+      <option value="single" selected>Enkel</option>
+      <option value="double">Dobbel</option>
+    </select>
+  </label>
   <label id="orthoWrap" title="Hold nye vegger, romkanter og hj&oslash;rneflytting vannrette eller loddrette"><input type="checkbox" id="ortho" checked> Tving 90&deg;</label>
   <label id="angle45Wrap" title="Begrens nye linjer til 0&deg;, 45&deg; eller 90&deg;. Hold Alt mens du tegner."><input type="checkbox" id="angle45"> 45&deg;</label>
 </div>
@@ -1128,6 +1136,7 @@
     wallType: 'ext',           // 'ext' | 'part' — for newly drawn walls
     stairDir: 'up',
     openingWidths: { door: 90, window: 120 },
+    doorStyle: 'single',
     scale: 0,
     units: 'auto',
     snap: 10,
@@ -1305,6 +1314,7 @@
       showNorth: state.showNorth,
       wallType: state.wallType,
       stairDir: state.stairDir,
+      doorStyle: normalizeDoorStyle(state.doorStyle),
       ortho: state.ortho,
       angle45: state.angle45,
       openingWidths: Object.assign({}, state.openingWidths),
@@ -1315,7 +1325,7 @@
         name: r.name || 'Rom',
         color: r.color || ROOM_COLORS[0],
       })),
-      openings: state.openings.map(o => ({ id: o.id, wallId: o.wallId, t: o.t, type: o.type, swing: o.swing || 'left', mirror: o.mirror === true, width: openingWidth(o) })),
+      openings: state.openings.map(o => ({ id: o.id, wallId: o.wallId, t: o.t, type: o.type, swing: o.swing || 'left', mirror: o.mirror === true, width: openingWidth(o), ...(o.type === 'door' ? { doorStyle: openingDoorStyle(o) } : {}) })),
       stairs: state.stairs.map(s => ({ id: s.id, rect: Object.assign({}, s.rect), dir: s.dir || 'up' })),
       guides: state.guides.map(g => ({ id: g.id, a: clonePt(g.a), b: clonePt(g.b) })),
       nextId: state.nextId,
@@ -1348,6 +1358,7 @@
     const windowWidth = Math.max(10, Number(rawOpeningWidths.window) || DEFAULT_WINDOW_WIDTH_CM);
     const ortho = data.ortho === false ? false : true;
     const angle45 = ortho ? false : !!data.angle45;
+    const doorStyle = normalizeDoorStyle(data.doorStyle);
     const wallIdMap = new Map();
     const walls = (data.walls || []).filter(Boolean).map(w => {
       const originalId = w.id;
@@ -1365,7 +1376,7 @@
       const type = o.type === 'window' ? 'window' : 'door';
       const rawWidth = Number(o.width);
       const wallId = wallIdMap.get(o.wallId) || wallIdMap.get(String(o.wallId)) || o.wallId;
-      return {
+      const opening = {
         id: safeId(o.id),
         wallId: wallId,
         t: Math.max(0.02, Math.min(0.98, Number(o.t) || 0.5)),
@@ -1374,6 +1385,8 @@
         mirror: o.mirror === true,
         width: rawWidth > 0 ? rawWidth : openingLegacyWidth(type),
       };
+      if (type === 'door') opening.doorStyle = normalizeDoorStyle(o.doorStyle);
+      return opening;
     }).filter(o => wallIds.has(o.wallId));
     const stairs = (data.stairs || []).filter(Boolean).map(s => ({ id: safeId(s.id), rect: safeRect(s.rect), dir: s.dir === 'down' ? 'down' : 'up' }));
     const guides = (data.guides || []).filter(Boolean).map(g => ({ id: safeId(g.id), a: safePt(g.a), b: safePt(g.b) }));
@@ -1391,6 +1404,7 @@
       stairDir: data.stairDir === 'down' ? 'down' : 'up',
       ortho,
       angle45,
+      doorStyle,
       openingWidths: { door: doorWidth, window: windowWidth },
       walls,
       rooms,
@@ -1416,6 +1430,7 @@
     state.stairDir = plan.stairDir;
     state.ortho = plan.ortho;
     state.angle45 = plan.angle45;
+    state.doorStyle = plan.doorStyle;
     state.openingWidths = Object.assign({}, plan.openingWidths);
     state.walls = plan.walls;
     state.rooms = plan.rooms;
@@ -1448,6 +1463,7 @@
     document.getElementById('stairDir').value = state.stairDir;
     document.getElementById('ortho').checked = state.ortho;
     document.getElementById('angle45').checked = state.angle45;
+    document.getElementById('doorStyle').value = state.doorStyle;
     syncOpeningWidthInput();
     if (options.render !== false) render();
     if (options.zoomFit) zoomFit();
@@ -1598,6 +1614,12 @@
     const n = Number(o && o.width);
     return n > 0 ? n : openingLegacyWidth(o && o.type);
   }
+  function normalizeDoorStyle(value) {
+    return value === 'double' ? 'double' : 'single';
+  }
+  function openingDoorStyle(opening) {
+    return opening && opening.type === 'door' ? normalizeDoorStyle(opening.doorStyle) : 'single';
+  }
   function clampOpeningWidthForWall(width, wall) {
     const n = Math.max(10, Number(width) || 10);
     if (!wall) return n;
@@ -1669,6 +1691,7 @@
       tSnap: snapT != null,
       type,
       width: openingDefaultWidth(type),
+      ...(type === 'door' ? { doorStyle: normalizeDoorStyle(state.doorStyle) } : {}),
     };
   }
 
@@ -1983,7 +2006,7 @@
   function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); }
 
   // === OPENINGS ===
-  function addOpening(wallId, t, type, width) {
+  function addOpening(wallId, t, type, width, doorStyle) {
     const wall = state.walls.find(w => w.id === wallId);
     const o = {
       id: 'o' + (state.nextId++),
@@ -1994,6 +2017,7 @@
       mirror: false,
       width: clampOpeningWidthForWall(width || openingDefaultWidth(type), wall),
     };
+    if (type === 'door') o.doorStyle = normalizeDoorStyle(doorStyle);
     state.openings.push(o);
     return o;
   }
@@ -2163,6 +2187,7 @@
       if (copy) {
         copy.swing = src.swing || 'left';
         copy.mirror = src.mirror === true;
+        if (copy.type === 'door') copy.doorStyle = openingDoorStyle(src);
       }
     } else if (type === 'stair') {
       copy = addStair({ x: src.rect.x + off, y: src.rect.y + off, w: src.rect.w, h: src.rect.h }, src.dir);
@@ -2333,7 +2358,14 @@
       else if (field === 'width' && numberValue > 0 && numberValue !== obj.rect.w) { obj.rect.w = numberValue; changed = true; }
       else if (field === 'height' && numberValue > 0 && numberValue !== obj.rect.h) { obj.rect.h = numberValue; changed = true; }
     } else if (type === 'opening') {
-      if (field === 'swing' && obj.type === 'door') {
+      if (field === 'doorStyle' && obj.type === 'door') {
+        const next = normalizeDoorStyle(rawValue);
+        if (next !== openingDoorStyle(obj)) {
+          obj.doorStyle = next;
+          changed = true;
+        }
+      }
+      else if (field === 'swing' && obj.type === 'door') {
         const next = rawValue === 'right' ? 'right' : 'left';
         if (next !== obj.swing) { obj.swing = next; changed = true; }
       }
@@ -2479,6 +2511,7 @@
         id: o.id,
         wallId: o.wallId,
         type: o.type,
+        doorStyle: openingDoorStyle(o),
         swing: o.swing,
         mirror: o.mirror === true,
         t: sidebarRound(o.t, 3),
@@ -2860,6 +2893,37 @@
     }
   }
 
+  function doorLeafGeometry(wall, opening) {
+    const dx = wall.b.x - wall.a.x;
+    const dy = wall.b.y - wall.a.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return [];
+    const ux = dx / len, uy = dy / len;
+    const nx = -uy, ny = ux;
+    const center = {
+      x: wall.a.x + dx * opening.t,
+      y: wall.a.y + dy * opening.t,
+    };
+    const half = openingRenderWidth(opening, wall) / 2;
+    if (openingDoorStyle(opening) !== 'double') return [];
+    const swingSide = opening.swing === 'right' ? -1 : 1;
+    const radius = half;
+    const startHinge = { x: center.x - ux * half, y: center.y - uy * half };
+    const endHinge = { x: center.x + ux * half, y: center.y + uy * half };
+    return [
+      {
+        side: 'start', hinge: startHinge, closedEnd: center, radius,
+        swingEnd: { x: startHinge.x + nx * radius * swingSide, y: startHinge.y + ny * radius * swingSide },
+        sweep: swingSide > 0 ? 1 : 0,
+      },
+      {
+        side: 'end', hinge: endHinge, closedEnd: center, radius,
+        swingEnd: { x: endHinge.x + nx * radius * swingSide, y: endHinge.y + ny * radius * swingSide },
+        sweep: swingSide > 0 ? 0 : 1,
+      },
+    ];
+  }
+
   function drawOpening(g, w, o, preview) {
     const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
     const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
@@ -2898,7 +2962,31 @@
       stroke: col, 'stroke-width': sw,
       'stroke-linecap': 'round',
     }, attrs)));
-    if (o.type === 'door') {
+    if (o.type === 'door' && openingDoorStyle(o) === 'double') {
+      for (const leaf of doorLeafGeometry(w, o)) {
+        g.appendChild(svgEl('path', {
+          d: 'M ' + leaf.closedEnd.x + ' ' + leaf.closedEnd.y
+            + ' A ' + leaf.radius + ' ' + leaf.radius + ' 0 0 ' + leaf.sweep
+            + ' ' + leaf.swingEnd.x + ' ' + leaf.swingEnd.y,
+          fill: 'none', stroke: col, 'stroke-width': sw2,
+          'stroke-dasharray': preview ? '5 3' : '3 2',
+          opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+          'data-door-swing': leaf.side,
+        }));
+        g.appendChild(svgEl('line', {
+          x1: leaf.hinge.x, y1: leaf.hinge.y,
+          x2: leaf.closedEnd.x, y2: leaf.closedEnd.y,
+          stroke: col, 'stroke-width': sw,
+          opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+          'data-door-leaf': leaf.side,
+        }));
+        g.appendChild(svgEl('circle', {
+          cx: leaf.hinge.x, cy: leaf.hinge.y, r: state._fs(1.6),
+          fill: col, 'pointer-events': 'none',
+          'data-door-hinge': leaf.side,
+        }));
+      }
+    } else if (o.type === 'door') {
       const arcR = 2 * half;
       // Arc starts at the leaf end, curves to (hinge + perpendicular * arcR).
       // Direction flag depends on swing AND mirror: mirror flips the perpendicular sense.
@@ -2908,12 +2996,12 @@
       const sweep = o.swing === 'right' ? 1 : 0;
       g.appendChild(svgEl('path', {
         d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY,
-        fill: 'none', stroke: col, 'stroke-width': sw2, 'stroke-dasharray': preview ? '5 3' : '3 2', opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+        fill: 'none', stroke: col, 'stroke-width': sw2, 'stroke-dasharray': preview ? '5 3' : '3 2', opacity: preview ? '0.78' : '1', 'pointer-events': 'none', 'data-door-swing': 'single',
       }));
       // Door panel (closed position) — solid line from hinge to leaf.
-      g.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': sw, opacity: preview ? '0.78' : '1', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': sw, opacity: preview ? '0.78' : '1', 'pointer-events': 'none', 'data-door-leaf': 'single' }));
       // Hinge dot so the user can see which side is hinged.
-      g.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: state._fs(1.6), fill: col, 'pointer-events': 'none' }));
+      g.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: state._fs(1.6), fill: col, 'pointer-events': 'none', 'data-door-hinge': 'single' }));
     } else {
       // Window: opening line + two thin parallel glazing lines on each side of the wall.
       const off = state._fs(3);
@@ -3564,14 +3652,20 @@
     fields.appendChild(fieldLabel('Plassering %', sidebarInput('opening', o.id, 'position', Math.round(o.t * 100), 'number')));
     fields.appendChild(fieldLabel('B cm', sidebarInput('opening', o.id, 'width', Math.round(openingWidth(o)), 'number')));
     if (o.type === 'door') {
+      fields.appendChild(fieldLabel('Dørtype', sidebarSelect('opening', o.id, 'doorStyle', openingDoorStyle(o), [
+        { value: 'single', label: 'Enkel' },
+        { value: 'double', label: 'Dobbel' },
+      ])));
       fields.appendChild(fieldLabel('Sving', sidebarSelect('opening', o.id, 'swing', o.swing || 'left', [
         { value: 'left', label: 'Venstre' },
         { value: 'right', label: 'Høyre' },
       ])));
-      fields.appendChild(fieldLabel('Hengslet på', sidebarSelect('opening', o.id, 'mirror', o.mirror ? 'end' : 'start', [
-        { value: 'start', label: 'Start' },
-        { value: 'end', label: 'Slutt' },
-      ])));
+      if (openingDoorStyle(o) === 'single') {
+        fields.appendChild(fieldLabel('Hengslet på', sidebarSelect('opening', o.id, 'mirror', o.mirror ? 'end' : 'start', [
+          { value: 'start', label: 'Start' },
+          { value: 'end', label: 'Slutt' },
+        ])));
+      }
       const flip = document.createElement('button');
       flip.type = 'button';
       flip.textContent = 'Snu sving';
@@ -3590,7 +3684,8 @@
     fields.appendChild(fieldLabel('H cm', sidebarInput('stair', s.id, 'height', Math.round(s.rect.h), 'number')));
   }
   function openingTitle(o) {
-    return o.type === 'door' ? 'Dør' : 'Vindu';
+    if (o.type !== 'door') return 'Vindu';
+    return openingDoorStyle(o) === 'double' ? 'Dobbel dør' : 'Dør';
   }
   function openingDescriptor(o) {
     return {
@@ -3942,7 +4037,7 @@
     }
     if (state.selection.type === 'opening') {
       const o = state.openings.find(x => x.id === state.selection.id);
-      return o ? 'Valgt ' + (o.type === 'door' ? 'dør ' : 'vindu ') + formatLength(openingWidth(o), state.units) : '';
+      return o ? 'Valgt ' + (o.type === 'door' ? (openingDoorStyle(o) === 'double' ? 'dobbel dør ' : 'dør ') : 'vindu ') + formatLength(openingWidth(o), state.units) : '';
     }
     if (state.selection.type === 'stair') {
       const s = state.stairs.find(x => x.id === state.selection.id);
@@ -4013,7 +4108,9 @@
     } else if (state.selection && state.selection.type === 'opening') {
       const opening = state.openings.find(x => x.id === state.selection.id);
       if (opening) {
-        title = opening.type === 'door' ? 'Valgt dør' : 'Valgt vindu';
+        title = opening.type === 'door'
+          ? (openingDoorStyle(opening) === 'double' ? 'Valgt dobbel dør' : 'Valgt dør')
+          : 'Valgt vindu';
         widthLabel = 'Bredde';
         width = openingWidth(opening);
         canWidth = true;
@@ -4527,6 +4624,7 @@
           type: placement.type,
           swing: 'left',
           width: placement.width,
+          ...(placement.type === 'door' ? { doorStyle: placement.doorStyle } : {}),
           tSnap: placement.tSnap,
         };
       } else {
@@ -4789,7 +4887,7 @@
       const placement = openingPlacementForPointer(cm, tool);
       if (placement) {
         snapshot();
-        addOpening(placement.wall.id, placement.t, tool, placement.width);
+        addOpening(placement.wall.id, placement.t, tool, placement.width, placement.doorStyle);
         requestRender();
       }
       return;
@@ -5246,6 +5344,7 @@
         width: openingWidth(o),
         swing: o.swing || 'left',
         mirror: o.mirror === true,
+        ...(o.type === 'door' ? { doorStyle: openingDoorStyle(o) } : {}),
       }));
   }
   function addWallOpeningCopies(wall, item) {
@@ -5254,6 +5353,7 @@
       if (opening) {
         opening.swing = c.swing || 'left';
         opening.mirror = c.mirror === true;
+        if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(c.doorStyle);
       }
     }
   }
@@ -5280,6 +5380,7 @@
         width: openingWidth(o),
         swing: o.swing || 'left',
         mirror: o.mirror === true,
+        ...(o.type === 'door' ? { doorStyle: openingDoorStyle(o) } : {}),
       });
     }
     return copies;
@@ -5316,6 +5417,7 @@
         width: openingWidth(obj),
         swing: obj.swing || 'left',
         mirror: obj.mirror === true,
+        ...(obj.type === 'door' ? { doorStyle: openingDoorStyle(obj) } : {}),
       };
     }
     if (type === 'stair') return { kind: 'stair', rect: Object.assign({}, obj.rect), dir: obj.dir || 'up' };
@@ -5383,6 +5485,7 @@
       if (opening) {
         opening.swing = c.swing || 'left';
         opening.mirror = c.mirror === true;
+        if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(c.doorStyle);
       }
     }
   }
@@ -5422,6 +5525,7 @@
       if (!opening) return null;
       opening.swing = item.swing || 'left';
       opening.mirror = item.mirror === true;
+      if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(item.doorStyle);
       return { type: 'opening', id: opening.id };
     }
     if (item.kind === 'stair') {
@@ -5465,6 +5569,7 @@
         if (opening) {
           opening.swing = item.swing || 'left';
           opening.mirror = item.mirror === true;
+          if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(item.doorStyle);
           state.selection = { type: 'opening', id: opening.id };
           if (clip && !Array.isArray(clip)) clip.pasteCount = pasteIndex;
           else state.clipboard = { items, pasteCount: pasteIndex };
@@ -5920,14 +6025,33 @@
       const leafEndY = p.y + (mirror ? -uy * half : uy * half);
       const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
       svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.4) }));
-      if (o.type === 'door') {
+      if (o.type === 'door' && openingDoorStyle(o) === 'double') {
+        for (const leaf of doorLeafGeometry(w, o)) {
+          svgOut.appendChild(svgEl('path', {
+            d: 'M ' + leaf.closedEnd.x + ' ' + leaf.closedEnd.y
+              + ' A ' + leaf.radius + ' ' + leaf.radius + ' 0 0 ' + leaf.sweep
+              + ' ' + leaf.swingEnd.x + ' ' + leaf.swingEnd.y,
+            fill: 'none', stroke: col, 'stroke-width': mm(0.25),
+            'stroke-dasharray': '0.8 0.6', 'data-door-swing': leaf.side,
+          }));
+          svgOut.appendChild(svgEl('line', {
+            x1: leaf.hinge.x, y1: leaf.hinge.y,
+            x2: leaf.closedEnd.x, y2: leaf.closedEnd.y,
+            stroke: col, 'stroke-width': mm(0.4), 'data-door-leaf': leaf.side,
+          }));
+          svgOut.appendChild(svgEl('circle', {
+            cx: leaf.hinge.x, cy: leaf.hinge.y, r: mm(0.45),
+            fill: col, 'data-door-hinge': leaf.side,
+          }));
+        }
+      } else if (o.type === 'door') {
         const arcR = 2 * half;
         const mirrorSign = mirror ? -1 : 1;
         const endX = hingeX + nx * arcR * mirrorSign, endY = hingeY + ny * arcR * mirrorSign;
         const sweep = o.swing === 'right' ? 1 : 0;
-        svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6' }));
-        svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4) }));
-        svgOut.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: mm(0.45), fill: col }));
+        svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6', 'data-door-swing': 'single' }));
+        svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4), 'data-door-leaf': 'single' }));
+        svgOut.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: mm(0.45), fill: col, 'data-door-hinge': 'single' }));
       } else {
         const off = 6;
         svgOut.appendChild(svgEl('line', { x1: p.x - ux * half + nx * off, y1: p.y - uy * half + ny * off, x2: p.x + ux * half + nx * off, y2: p.y + uy * half + ny * off, stroke: col, 'stroke-width': mm(0.3) }));
@@ -7038,6 +7162,12 @@
     scheduleAutosave();
     requestRender();
   });
+  document.getElementById('doorStyle').addEventListener('change', (event) => {
+    state.doorStyle = normalizeDoorStyle(event.target.value);
+    if (state.openingPreview && state.openingPreview.type === 'door') state.openingPreview.doorStyle = state.doorStyle;
+    scheduleAutosave();
+    requestRender();
+  });
   document.getElementById('showGrid').addEventListener('change',  (e) => { state.showGrid = e.target.checked; scheduleAutosave(); requestRender(); });
   document.getElementById('showLabels').addEventListener('change',(e) => { state.showLabels = e.target.checked; scheduleAutosave(); requestRender(); });
   document.getElementById('roomInfo').addEventListener('change',(e) => { state.roomInfo = e.target.value; state.showRooms = e.target.value !== 'off'; scheduleAutosave(); requestRender(); });
@@ -7139,7 +7269,7 @@
     state, lengthCm, formatLength, formatArea, openingWidth, snapCm, pointToSegment,
     lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
     findWallFaces, findRoomFaceAt, findWallsByLength, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
-    constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, drawOpening,
+    constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, doorLeafGeometry, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
     createCarpentryExportData, validateCarpentryExportability, carpentryExportFileName, downloadCarpentryExport,

@@ -25,6 +25,7 @@ build/
 .cache/
 .tmp/
 .temp/
+.worktrees/
 
 # Logs
 *.log
