@@ -109,6 +109,26 @@ requireFunctionMatch(
 );
 
 requireMatch(
+  /copy\.doorStyle = openingDoorStyle\(src\)/,
+  'duplicated doors should preserve door style'
+);
+
+requireFunctionMatch('wallOpeningCopies', /doorStyle:\s*openingDoorStyle\(o\)/,
+  'wall clipboard copies should preserve door style');
+requireFunctionMatch('roomOpeningCopies', /doorStyle:\s*openingDoorStyle\(o\)/,
+  'room clipboard copies should preserve door style');
+requireFunctionMatch('clipboardItemFor', /kind:\s*'opening'[\s\S]*doorStyle:\s*openingDoorStyle\(obj\)/,
+  'standalone opening clipboard copies should preserve door style');
+requireFunctionMatch('addWallOpeningCopies', /opening\.doorStyle\s*=\s*normalizeDoorStyle\(c\.doorStyle\)/,
+  'pasted wall openings should restore door style');
+requireFunctionMatch('addRoomOpeningCopies', /opening\.doorStyle\s*=\s*normalizeDoorStyle\(c\.doorStyle\)/,
+  'pasted room openings should restore door style');
+requireFunctionMatch('pasteClipboardItem', /opening\.doorStyle\s*=\s*normalizeDoorStyle\(item\.doorStyle\)/,
+  'pasted standalone openings should restore door style');
+requireFunctionMatch('pasteClipboardAt', /opening\.doorStyle\s*=\s*normalizeDoorStyle\(item\.doorStyle\)/,
+  'openings pasted onto a chosen wall should restore door style');
+
+requireMatch(
   /function applySidebarHover\(type,\s*id\)/,
   'sidebar hover sync should use a dataset-filtered helper for arbitrary imported ids'
 );

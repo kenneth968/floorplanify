@@ -337,6 +337,27 @@ test('wide double door can be chosen before placement and survives native save l
   await expect(page.locator('#doorStyle')).toHaveValue('double');
 });
 
+test('existing door converts to double without changing width or position', async ({ page }) => {
+  await createRectangleRoom(page);
+  await placeOpening(page, 'Dør-verktøy', { x: 0, y: -200 });
+  const before = (await currentPlan(page)).openings[0];
+
+  await page.getByRole('button', { name: 'Velg-verktøy' }).click();
+  await clickCanvasAtCm(page, 0, -200);
+  await page.locator('[data-side-field="mirror"]').selectOption('end');
+  const styleField = page.locator(
+    '[data-side-type="opening"][data-side-field="doorStyle"]',
+  );
+  await styleField.selectOption('double');
+
+  const after = (await currentPlan(page)).openings[0];
+  expect(after).toMatchObject({ doorStyle: 'double', width: before.width, t: before.t });
+  await expect(page.locator('[data-side-field="mirror"]')).toHaveCount(0);
+
+  await styleField.selectOption('single');
+  await expect(page.locator('[data-side-field="mirror"]')).toHaveValue('end');
+});
+
 test('legacy and invalid door styles normalize to single', async ({ page }) => {
   const legacy = {
     version: 3,
