@@ -1,7 +1,7 @@
 # Double Door — Design
 
 **Date:** 2026-08-12  
-**Status:** Approved design, pending written-spec review  
+**Status:** Approved
 **Scope:** `floorplanify.html` and its automated tests
 
 ## Purpose
