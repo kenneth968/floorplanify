@@ -69,6 +69,21 @@ rendering — no build step, no framework, no install.
 | `Alt+drag` | Allow 45° angles |
 | `Space+drag` | Pan from any tool |
 
+## Optional Carpentry handoff / Valfri Carpentry-overføring
+
+Floorplanify remains a standalone floorplan app; this secondary handoff is
+optional. Floorplanify er framleis ein sjølvstendig planteikningsapp, og denne
+overføringa er berre eit valfritt tillegg.
+
+Open `Integrasjoner > Eksporter til Carpentry` to download a
+`*.carpentry.json` file for explicit import in Carpentry. Dette lastar ned ei
+`*.carpentry.json`-fil som du importerer eksplisitt i Carpentry. It never
+launches Blender or creates a 3D model; det startar aldri Blender eller lagar
+nokon 3D-modell. Carpentry compatibility blockers stop only this optional
+export, while normal JSON save and PDF, PNG, and SVG exports remain available
+and unchanged. Kompatibilitetsfeil for Carpentry stoppar berre denne valfrie
+eksporten; vanleg JSON-lagring og PDF-, PNG- og SVG-eksport fungerer uendra.
+
 ## Files / Filer
 
 ```text

@@ -12,7 +12,6 @@ desktop.ini
 
 # Node / package managers (in case a future build is added)
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -33,6 +32,7 @@ logs/
 
 # OMC (orchestration) state
 .omc/
+.omo/
 .omx/
 
 # Local-only data

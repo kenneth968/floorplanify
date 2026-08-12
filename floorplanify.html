@@ -43,6 +43,7 @@
     z-index: 4;
   }
   #toolbar {
+    z-index: 5;
     min-height: 46px;
     padding: 7px 10px;
     display: flex;
@@ -177,6 +178,7 @@
   }
   .menu-row.compact { justify-content: flex-start; flex-wrap: wrap; }
   .export-menu { min-width: 250px; }
+  .integrations-menu { min-width: 220px; }
   .print-fit-info {
     display: inline-flex;
     align-items: center;
@@ -990,6 +992,13 @@
     </div>
   </div>
 
+  <div class="chrome-menu-wrap">
+    <button id="integrationsMenuButton" class="menu-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="integrationsMenu">Integrasjoner</button>
+    <div id="integrationsMenu" class="chrome-menu integrations-menu" role="group" aria-labelledby="integrationsMenuButton" hidden>
+      <button id="exportCarpentry" type="button">Eksporter til Carpentry</button>
+    </div>
+  </div>
+
   <button id="clear" class="danger" type="button" title="T&oslash;m alt">T&oslash;m</button>
 </div>
 
@@ -1193,11 +1202,16 @@
       button: document.getElementById('exportMenuButton'),
       panel: document.getElementById('exportMenu'),
     },
+    {
+      button: document.getElementById('integrationsMenuButton'),
+      panel: document.getElementById('integrationsMenu'),
+    },
   ].filter(pair => pair.button && pair.panel);
   const ROOM_COLORS = ['#f3c45d', '#7fc8a9', '#8fb8ed', '#d8a7df', '#f0a36b', '#98d56f'];
   const DEFAULT_DOOR_WIDTH_CM = 90;
   const DEFAULT_WINDOW_WIDTH_CM = 120;
   const LEGACY_WINDOW_WIDTH_CM = 60;
+  const CARPENTRY_MAX_BYTES = 10 * 1024 * 1024;
   const SIDEBAR_PREF_KEY = 'floorplanify.sidebar.v1';
   const SIDEBAR_MIN_W = 220;
   const SIDEBAR_MAX_W = 420;
@@ -2078,6 +2092,7 @@
     setButtonDisabled('exportPdf', !hasContent);
     setButtonDisabled('exportPng', !hasContent);
     setButtonDisabled('exportSvg', !hasContent);
+    setButtonDisabled('exportCarpentry', !hasContent);
     syncPrintFitInfo();
   }
   function syncPrintFitInfo() {
@@ -5134,6 +5149,7 @@
       return;
     }
     if (evt.target.tagName === 'INPUT' || evt.target.tagName === 'SELECT' || evt.target.tagName === 'TEXTAREA') return;
+    if ((evt.key === ' ' || evt.key === 'Enter') && (evt.target.tagName === 'BUTTON' || evt.target.tagName === 'SUMMARY')) return;
 
     if (evt.ctrlKey || evt.metaKey) {
       if (evt.key.toLowerCase() === 'z' && !evt.shiftKey) { evt.preventDefault(); undo(); return; }
@@ -6208,6 +6224,675 @@
     showNotice('SVG lastet ned · ' + exportLabel(spec));
   }
 
+  // === CARPENTRY EXCHANGE ===
+  function compareUnicodeCodePoints(left, right) {
+    const a = Array.from(String(left));
+    const b = Array.from(String(right));
+    const length = Math.min(a.length, b.length);
+    for (let i = 0; i < length; i++) {
+      const difference = a[i].codePointAt(0) - b[i].codePointAt(0);
+      if (difference) return difference;
+    }
+    return a.length - b.length;
+  }
+
+  function carpentrySortedEntities(items) {
+    return (items || []).slice().sort((left, right) => compareUnicodeCodePoints(left.id, right.id));
+  }
+
+  function carpentryPoint(point) {
+    return { x: point && point.x, y: point && point.y };
+  }
+
+  function mergeCarpentryExteriorChains(walls, openings, idCounts) {
+    const exteriorWalls = walls.filter(wall => wall.kind === 'exterior');
+    const wallIndexes = new Map(exteriorWalls.map((wall, index) => [wall, index]));
+    const parents = exteriorWalls.map((_, index) => index);
+    function find(index) {
+      while (parents[index] !== index) {
+        parents[index] = parents[parents[index]];
+        index = parents[index];
+      }
+      return index;
+    }
+    function union(left, right) {
+      const a = find(left);
+      const b = find(right);
+      if (a !== b) parents[b] = a;
+    }
+    function pointKey(point) {
+      return JSON.stringify([point.x, point.y]);
+    }
+    function collinearAt(first, second, point) {
+      const firstOther = pointKey(first.start) === pointKey(point) ? first.end : first.start;
+      const secondOther = pointKey(second.start) === pointKey(point) ? second.end : second.start;
+      return Math.abs(
+        (point.x - firstOther.x) * (secondOther.y - point.y) -
+        (point.y - firstOther.y) * (secondOther.x - point.x)
+      ) <= 1e-9;
+    }
+
+    const incident = new Map();
+    for (const wall of exteriorWalls) {
+      for (const point of [wall.start, wall.end]) {
+        const key = pointKey(point);
+        if (!incident.has(key)) incident.set(key, { point, walls: [] });
+        incident.get(key).walls.push(wall);
+      }
+    }
+    for (const { point, walls: atPoint } of incident.values()) {
+      if (atPoint.length === 2 &&
+          idCounts.get(atPoint[0].id) === 1 && idCounts.get(atPoint[1].id) === 1 &&
+          collinearAt(atPoint[0], atPoint[1], point)) {
+        union(wallIndexes.get(atPoint[0]), wallIndexes.get(atPoint[1]));
+      }
+    }
+
+    const components = new Map();
+    for (let index = 0; index < exteriorWalls.length; index++) {
+      const root = find(index);
+      if (!components.has(root)) components.set(root, []);
+      components.get(root).push(exteriorWalls[index]);
+    }
+
+    const mergedWalls = walls.filter(wall => wall.kind !== 'exterior');
+    const wallMapping = new Map();
+    for (const component of components.values()) {
+      if (component.length === 1) {
+        const wall = component[0];
+        mergedWalls.push(wall);
+        wallMapping.set(wall.id, { source: wall, merged: wall });
+        continue;
+      }
+      const endpointCounts = new Map();
+      for (const wall of component) {
+        for (const point of [wall.start, wall.end]) {
+          const key = pointKey(point);
+          if (!endpointCounts.has(key)) endpointCounts.set(key, { point, count: 0 });
+          endpointCounts.get(key).count++;
+        }
+      }
+      const endpoints = Array.from(endpointCounts.values())
+        .filter(({ count }) => count === 1)
+        .map(({ point }) => point);
+      if (endpoints.length !== 2) {
+        mergedWalls.push(...component);
+        for (const wall of component) wallMapping.set(wall.id, { source: wall, merged: wall });
+        continue;
+      }
+      const survivor = component.slice()
+        .sort((left, right) => compareUnicodeCodePoints(left.id, right.id))[0];
+      const direction = {
+        x: survivor.end.x - survivor.start.x,
+        y: survivor.end.y - survivor.start.y,
+      };
+      const projection = point => (
+        (point.x - survivor.start.x) * direction.x +
+        (point.y - survivor.start.y) * direction.y
+      );
+      endpoints.sort((left, right) => projection(left) - projection(right));
+      const merged = {
+        id: survivor.id,
+        kind: 'exterior',
+        start: carpentryPoint(endpoints[0]),
+        end: carpentryPoint(endpoints[1]),
+      };
+      mergedWalls.push(merged);
+      for (const wall of component) wallMapping.set(wall.id, { source: wall, merged });
+    }
+
+    const mergedOpenings = openings.map(opening => {
+      const mapping = wallMapping.get(opening.wallId);
+      if (!mapping || mapping.source === mapping.merged) return opening;
+      const sourcePoint = {
+        x: mapping.source.start.x + (mapping.source.end.x - mapping.source.start.x) * opening.centerT,
+        y: mapping.source.start.y + (mapping.source.end.y - mapping.source.start.y) * opening.centerT,
+      };
+      const dx = mapping.merged.end.x - mapping.merged.start.x;
+      const dy = mapping.merged.end.y - mapping.merged.start.y;
+      const lengthSquared = dx * dx + dy * dy;
+      return Object.assign({}, opening, {
+        wallId: mapping.merged.id,
+        centerT: lengthSquared ? (
+          (sourcePoint.x - mapping.merged.start.x) * dx +
+          (sourcePoint.y - mapping.merged.start.y) * dy
+        ) / lengthSquared : opening.centerT,
+      });
+    });
+    return { walls: mergedWalls, openings: mergedOpenings };
+  }
+
+  function createCarpentryExportData() {
+    const walls = state.walls.map(wall => ({
+      id: String(wall.id),
+      kind: wall.type === 'part' ? 'interior' : 'exterior',
+      start: carpentryPoint(wall.a),
+      end: carpentryPoint(wall.b),
+    }));
+    const openings = state.openings.map(opening => ({
+      id: String(opening.id),
+      kind: opening.type === 'window' ? 'window' : 'door',
+      wallId: String(opening.wallId),
+      centerT: opening.t,
+      widthCm: opening.width == null ? openingLegacyWidth(opening.type) : opening.width,
+      swing: opening.swing === 'right' ? 'right' : 'left',
+      mirrored: opening.mirror === true,
+    }));
+    const rooms = state.rooms.map(room => ({
+      id: String(room.id),
+      name: room.name,
+      points: (room.points || []).map(carpentryPoint),
+    }));
+    const stairs = state.stairs.map(stair => ({
+      id: String(stair.id),
+      rect: {
+        x: stair.rect && stair.rect.x,
+        y: stair.rect && stair.rect.y,
+        w: stair.rect && stair.rect.w,
+        h: stair.rect && stair.rect.h,
+      },
+      dir: stair.dir === 'down' ? 'down' : 'up',
+    }));
+    const guides = state.guides.map(guide => ({
+      id: String(guide.id),
+      a: carpentryPoint(guide.a),
+      b: carpentryPoint(guide.b),
+    }));
+    const idCounts = new Map();
+    for (const entity of [...walls, ...rooms, ...openings, ...stairs, ...guides]) {
+      idCounts.set(entity.id, (idCounts.get(entity.id) || 0) + 1);
+    }
+    const normalized = mergeCarpentryExteriorChains(walls, openings, idCounts);
+    return {
+      format: 'floorplanify.carpentry',
+      version: 1,
+      source: {
+        application: 'Floorplanify',
+        planVersion: 3,
+        units: 'cm',
+        xAxis: 'right',
+        yAxis: 'down',
+        origin: 'floorplan-canvas',
+      },
+      project: {
+        name: state.projectName,
+        walls: carpentrySortedEntities(normalized.walls),
+        rooms: carpentrySortedEntities(rooms),
+        openings: carpentrySortedEntities(normalized.openings),
+        stairs: carpentrySortedEntities(stairs),
+        guides: carpentrySortedEntities(guides),
+      },
+      diagnostics: [],
+    };
+  }
+
+  function validateCarpentryExportability(data) {
+    const diagnostics = [];
+    function add(severity, code, message, sourceIds) {
+      const ids = Array.from(new Set((sourceIds || [])
+        .filter(id => id != null)
+        .map(String)))
+        .sort(compareUnicodeCodePoints);
+      diagnostics.push({ severity, code, message, sourceIds: ids });
+    }
+    function finish() {
+      const unique = new Map();
+      for (const diagnostic of diagnostics) {
+        const key = [diagnostic.severity, diagnostic.code, diagnostic.sourceIds.join('\u0000'), diagnostic.message].join('\u0001');
+        if (!unique.has(key)) unique.set(key, diagnostic);
+      }
+      return Array.from(unique.values()).sort((left, right) => {
+        for (const pair of [
+          [left.severity, right.severity],
+          [left.code, right.code],
+          [left.sourceIds.join('\u0000'), right.sourceIds.join('\u0000')],
+          [left.message, right.message],
+        ]) {
+          const order = compareUnicodeCodePoints(pair[0], pair[1]);
+          if (order) return order;
+        }
+        return 0;
+      });
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data) || !data.project || typeof data.project !== 'object') {
+      add('blocker', 'malformed_input', 'Carpentry exchange data must be an object with a project.', []);
+      return finish();
+    }
+    const project = data.project;
+    const listNames = ['walls', 'rooms', 'openings', 'stairs', 'guides'];
+    if (listNames.some(name => !Array.isArray(project[name]))) {
+      add('blocker', 'malformed_input', 'Carpentry exchange project entity collections must be arrays.', []);
+      return finish();
+    }
+    const walls = project.walls;
+    const rooms = project.rooms;
+    const openings = project.openings;
+    const stairs = project.stairs;
+    const guides = project.guides;
+
+    const ids = new Map();
+    for (const entity of [...walls, ...rooms, ...openings, ...stairs, ...guides]) {
+      if (!entity || typeof entity !== 'object') {
+        add('blocker', 'malformed_input', 'Every Carpentry exchange entity must be an object.', []);
+        continue;
+      }
+      if (typeof entity.id !== 'string' || entity.id.length === 0) {
+        add('blocker', 'malformed_input', 'Every Carpentry exchange entity must have a non-empty string id.', []);
+        continue;
+      }
+      if (ids.has(entity.id)) add('blocker', 'duplicate_id', 'Entity id is used more than once: ' + entity.id + '.', [entity.id]);
+      else ids.set(entity.id, entity);
+    }
+
+    function finitePoint(point) {
+      return !!point && Number.isFinite(point.x) && Number.isFinite(point.y);
+    }
+    function samePoint(a, b) {
+      return !!a && !!b && a.x === b.x && a.y === b.y;
+    }
+    function exactPointKey(point) {
+      return JSON.stringify([point.x, point.y]);
+    }
+    function undirectedSegmentKey(a, b) {
+      const first = exactPointKey(a);
+      const second = exactPointKey(b);
+      return compareUnicodeCodePoints(first, second) <= 0 ? first + '|' + second : second + '|' + first;
+    }
+    function wallLength(wall) {
+      return Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+    }
+    function cross(a, b, c) {
+      return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    }
+    function pointOnSegment(point, a, b) {
+      if (Math.abs(cross(a, b, point)) > 1e-9) return false;
+      return point.x >= Math.min(a.x, b.x) - 1e-9 && point.x <= Math.max(a.x, b.x) + 1e-9 &&
+        point.y >= Math.min(a.y, b.y) - 1e-9 && point.y <= Math.max(a.y, b.y) + 1e-9;
+    }
+    function segmentsIntersect(a, b, c, d) {
+      const abC = cross(a, b, c);
+      const abD = cross(a, b, d);
+      const cdA = cross(c, d, a);
+      const cdB = cross(c, d, b);
+      if (((abC > 1e-9 && abD < -1e-9) || (abC < -1e-9 && abD > 1e-9)) &&
+          ((cdA > 1e-9 && cdB < -1e-9) || (cdA < -1e-9 && cdB > 1e-9))) return true;
+      return (Math.abs(abC) <= 1e-9 && pointOnSegment(c, a, b)) ||
+        (Math.abs(abD) <= 1e-9 && pointOnSegment(d, a, b)) ||
+        (Math.abs(cdA) <= 1e-9 && pointOnSegment(a, c, d)) ||
+        (Math.abs(cdB) <= 1e-9 && pointOnSegment(b, c, d));
+    }
+    function pointInPolygon(point, polygon) {
+      for (let i = 0; i < polygon.length; i++) {
+        if (pointOnSegment(point, polygon[i], polygon[(i + 1) % polygon.length])) return true;
+      }
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const a = polygon[i];
+        const b = polygon[j];
+        if ((a.y > point.y) !== (b.y > point.y) &&
+            point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      return inside;
+    }
+    function segmentParameter(point, a, b) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      return Math.abs(dx) >= Math.abs(dy) ? (point.x - a.x) / dx : (point.y - a.y) / dy;
+    }
+    function segmentContainedInPolygon(a, b, polygon) {
+      if (!pointInPolygon(a, polygon) || !pointInPolygon(b, polygon)) return false;
+      const parameters = [0, 1];
+      for (let i = 0; i < polygon.length; i++) {
+        const c = polygon[i];
+        const d = polygon[(i + 1) % polygon.length];
+        for (const point of [c, d]) {
+          if (pointOnSegment(point, a, b)) parameters.push(segmentParameter(point, a, b));
+        }
+        for (const point of [a, b]) {
+          if (pointOnSegment(point, c, d)) parameters.push(segmentParameter(point, a, b));
+        }
+        const denominator = (a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x);
+        if (Math.abs(denominator) > 1e-9) {
+          const t = ((a.x - c.x) * (c.y - d.y) - (a.y - c.y) * (c.x - d.x)) / denominator;
+          const u = -((a.x - b.x) * (a.y - c.y) - (a.y - b.y) * (a.x - c.x)) / denominator;
+          if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) parameters.push(t);
+        }
+      }
+      const ordered = Array.from(new Set(parameters.map(value => Math.max(0, Math.min(1, value)).toFixed(12))))
+        .map(Number)
+        .sort((left, right) => left - right);
+      for (let i = 0; i < ordered.length - 1; i++) {
+        const t = (ordered[i] + ordered[i + 1]) / 2;
+        const point = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        if (!pointInPolygon(point, polygon)) return false;
+      }
+      return true;
+    }
+
+    let basicWallBlocker = false;
+    const edgeOwners = new Map();
+    for (const wall of walls) {
+      if (!wall || !finitePoint(wall.start) || !finitePoint(wall.end)) {
+        add('blocker', 'non_finite_number', 'Wall coordinates must be finite: ' + (wall && wall.id) + '.', [wall && wall.id]);
+        basicWallBlocker = true;
+        continue;
+      }
+      if (samePoint(wall.start, wall.end)) {
+        add('blocker', 'zero_length_wall', 'Wall has zero length: ' + wall.id + '.', [wall.id]);
+        basicWallBlocker = true;
+        continue;
+      }
+      if (wall.start.x !== wall.end.x && wall.start.y !== wall.end.y) {
+        add('blocker', 'non_orthogonal_wall', 'Wall is not horizontal or vertical: ' + wall.id + '.', [wall.id]);
+        basicWallBlocker = true;
+      }
+      const key = undirectedSegmentKey(wall.start, wall.end);
+      if (edgeOwners.has(key)) {
+        add('blocker', 'duplicate_edge', 'Walls describe the same edge: ' + edgeOwners.get(key).id + ' and ' + wall.id + '.', [edgeOwners.get(key).id, wall.id]);
+        basicWallBlocker = true;
+      } else edgeOwners.set(key, wall);
+    }
+
+    const exteriorWalls = walls.filter(wall => wall && wall.kind === 'exterior');
+    if (exteriorWalls.length === 0) add('blocker', 'missing_exterior_shell', 'At least one exterior wall shell is required.', []);
+    const shells = [];
+    let topologyBlocker = false;
+    if (exteriorWalls.length && !basicWallBlocker) {
+      const adjacency = new Map();
+      function connect(point, wall) {
+        const key = exactPointKey(point);
+        if (!adjacency.has(key)) adjacency.set(key, []);
+        adjacency.get(key).push(wall);
+      }
+      for (const wall of exteriorWalls) {
+        connect(wall.start, wall);
+        connect(wall.end, wall);
+      }
+      function wallComponents(items, ignoredVertexKey) {
+        const allowed = new Set(items);
+        const remaining = new Set(items);
+        const components = [];
+        while (remaining.size) {
+          const first = remaining.values().next().value;
+          const component = [];
+          const queue = [first];
+          remaining.delete(first);
+          while (queue.length) {
+            const wall = queue.shift();
+            component.push(wall);
+            for (const point of [wall.start, wall.end]) {
+              const key = exactPointKey(point);
+              if (key === ignoredVertexKey) continue;
+              for (const neighbor of adjacency.get(key) || []) {
+                if (allowed.has(neighbor) && remaining.delete(neighbor)) queue.push(neighbor);
+              }
+            }
+          }
+          components.push(component);
+        }
+        return components;
+      }
+      const connectedComponents = wallComponents(exteriorWalls, null);
+      const topologyComponents = [];
+      for (const component of connectedComponents) {
+        const componentSet = new Set(component);
+        const branched = Array.from(adjacency.entries()).filter(([, incident]) => (
+          incident.length > 2 && incident.some(wall => componentSet.has(wall))
+        ));
+        let touchingShellSplit = null;
+        if (branched.length === 1 && branched[0][1].length === 4) {
+          const [vertexKey, incident] = branched[0];
+          const degrees = new Map();
+          for (const wall of component) {
+            for (const point of [wall.start, wall.end]) {
+              const key = exactPointKey(point);
+              degrees.set(key, (degrees.get(key) || 0) + 1);
+            }
+          }
+          const split = Array.from(degrees.entries()).every(([key, degree]) => (
+            key === vertexKey ? degree === 4 : degree === 2
+          )) ? wallComponents(component, vertexKey) : [];
+          if (split.length === 2 && split.every(component => (
+            component.filter(wall => incident.includes(wall)).length === 2
+          ))) {
+            touchingShellSplit = split;
+          }
+        }
+        if (touchingShellSplit) {
+          topologyComponents.push(...touchingShellSplit);
+        } else if (branched.length) {
+          for (const [, incident] of branched) {
+            add('blocker', 'branched_exterior_shell', 'Exterior shell has a vertex with more than two walls.', incident.map(wall => wall.id));
+          }
+          topologyBlocker = true;
+        } else {
+          topologyComponents.push(component);
+        }
+      }
+      if (!topologyBlocker) {
+        const open = Array.from(adjacency.entries()).filter(([, incident]) => incident.length < 2);
+        if (open.length) {
+          for (const [, incident] of open) {
+            add('blocker', 'unclosed_exterior_shell', 'Exterior shell has an endpoint that does not close.', incident.map(wall => wall.id));
+          }
+          topologyBlocker = true;
+        }
+      }
+      if (!topologyBlocker) {
+        for (const component of topologyComponents) {
+          const componentSet = new Set(component);
+          const orderedWalls = [];
+          const points = [];
+          const used = new Set();
+          let currentWall = component.slice().sort((a, b) => compareUnicodeCodePoints(a.id, b.id))[0];
+          let currentPoint = currentWall.start;
+          const startKey = exactPointKey(currentPoint);
+          for (let guard = 0; guard <= component.length; guard++) {
+            points.push(currentPoint);
+            orderedWalls.push(currentWall);
+            used.add(currentWall);
+            const nextPoint = samePoint(currentWall.start, currentPoint) ? currentWall.end : currentWall.start;
+            if (exactPointKey(nextPoint) === startKey) break;
+            currentPoint = nextPoint;
+            currentWall = (adjacency.get(exactPointKey(currentPoint)) || [])
+              .find(wall => componentSet.has(wall) && !used.has(wall));
+            if (!currentWall) break;
+          }
+          shells.push({ points, walls: orderedWalls });
+        }
+      }
+    }
+
+    let shellGeometryBlocker = false;
+    for (const shell of shells) {
+      const count = shell.points.length;
+      for (let i = 0; i < count; i++) {
+        const previous = shell.points[(i - 1 + count) % count];
+        const current = shell.points[i];
+        const next = shell.points[(i + 1) % count];
+        if (Math.abs(cross(previous, current, next)) <= 1e-9) {
+          add('blocker', 'redundant_corner', 'Exterior shell contains consecutive collinear walls.', [
+            shell.walls[(i - 1 + count) % count].id,
+            shell.walls[i].id,
+          ]);
+          shellGeometryBlocker = true;
+        }
+      }
+      for (let i = 0; i < count; i++) {
+        const a = shell.points[i];
+        const b = shell.points[(i + 1) % count];
+        for (let j = i + 1; j < count; j++) {
+          if (j === i + 1 || (i === 0 && j === count - 1)) continue;
+          const c = shell.points[j];
+          const d = shell.points[(j + 1) % count];
+          if (segmentsIntersect(a, b, c, d)) {
+            add('blocker', 'self_intersecting_shell', 'Exterior shell intersects or touches itself.', [shell.walls[i].id, shell.walls[j].id]);
+            shellGeometryBlocker = true;
+          }
+        }
+      }
+    }
+
+    let shellRelationshipBlocker = false;
+    if (!shellGeometryBlocker) {
+      for (let i = 0; i < shells.length; i++) {
+        for (let j = i + 1; j < shells.length; j++) {
+          const first = shells[i];
+          const second = shells[j];
+          let touching = false;
+          for (let a = 0; a < first.points.length && !touching; a++) {
+            for (let b = 0; b < second.points.length && !touching; b++) {
+              touching = segmentsIntersect(
+                first.points[a], first.points[(a + 1) % first.points.length],
+                second.points[b], second.points[(b + 1) % second.points.length],
+              );
+            }
+          }
+          const sourceIds = [...first.walls, ...second.walls].map(wall => wall.id);
+          if (touching) {
+            add('blocker', 'touching_exterior_shells', 'Exterior shells touch or overlap.', sourceIds);
+            shellRelationshipBlocker = true;
+          } else if (pointInPolygon(first.points[0], second.points) || pointInPolygon(second.points[0], first.points)) {
+            add('blocker', 'nested_exterior_shell', 'One exterior shell is nested inside another.', sourceIds);
+            shellRelationshipBlocker = true;
+          }
+        }
+      }
+    }
+
+    if (!basicWallBlocker && !topologyBlocker && !shellGeometryBlocker && !shellRelationshipBlocker && shells.length) {
+      for (const wall of walls.filter(item => item && item.kind === 'interior')) {
+        if (!shells.some(shell => segmentContainedInPolygon(wall.start, wall.end, shell.points))) {
+          add('blocker', 'interior_wall_outside_shell', 'Interior wall is not wholly contained by an exterior shell: ' + wall.id + '.', [wall.id]);
+        }
+      }
+    }
+
+    for (const room of rooms) {
+      const points = room && room.points;
+      let invalid = !Array.isArray(points) || points.length < 3;
+      if (Array.isArray(points)) {
+        if (points.some(point => !finitePoint(point))) {
+          add('blocker', 'non_finite_number', 'Room coordinates must be finite: ' + room.id + '.', [room.id]);
+          invalid = true;
+        }
+        if (points.length > 1 && samePoint(points[0], points[points.length - 1])) invalid = true;
+        for (let i = 0; i < points.length; i++) {
+          if (samePoint(points[i], points[(i + 1) % points.length])) invalid = true;
+        }
+        let area = 0;
+        if (points.every(finitePoint)) {
+          for (let i = 0; i < points.length; i++) {
+            const a = points[i];
+            const b = points[(i + 1) % points.length];
+            area += a.x * b.y - b.x * a.y;
+          }
+          if (Math.abs(area) <= 1e-9) invalid = true;
+        }
+      }
+      if (invalid) add('blocker', 'invalid_room_shape', 'Room polygon is invalid: ' + (room && room.id) + '.', [room && room.id]);
+    }
+
+    for (const stair of stairs) {
+      const rect = stair && stair.rect;
+      if (!rect || ![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) {
+        add('blocker', 'non_finite_number', 'Stair rectangle values must be finite: ' + (stair && stair.id) + '.', [stair && stair.id]);
+      } else if (rect.w <= 0 || rect.h <= 0) {
+        add('blocker', 'invalid_stair_rect', 'Stair rectangle must have positive width and height: ' + stair.id + '.', [stair.id]);
+      }
+    }
+
+    for (const guide of guides) {
+      if (!guide || !finitePoint(guide.a) || !finitePoint(guide.b)) {
+        add('blocker', 'non_finite_number', 'Guide coordinates must be finite: ' + (guide && guide.id) + '.', [guide && guide.id]);
+      } else if (samePoint(guide.a, guide.b)) {
+        add('blocker', 'zero_length_guide', 'Guide has zero length: ' + guide.id + '.', [guide.id]);
+      }
+    }
+
+    const wallsById = new Map(walls.filter(Boolean).map(wall => [wall.id, wall]));
+    const openingIntervals = new Map();
+    for (const opening of openings) {
+      const wall = opening && wallsById.get(opening.wallId);
+      if (!wall) {
+        add('blocker', 'missing_wall_reference', 'Opening references a missing wall: ' + (opening && opening.id) + '.', [opening && opening.id]);
+        continue;
+      }
+      if (!Number.isFinite(opening.centerT) || !Number.isFinite(opening.widthCm)) {
+        add('blocker', 'non_finite_number', 'Opening position and width must be finite: ' + opening.id + '.', [opening.id]);
+        continue;
+      }
+      if (opening.widthCm <= 0) {
+        add('blocker', 'invalid_opening_width', 'Opening width must be positive: ' + opening.id + '.', [opening.id]);
+        continue;
+      }
+      const length = finitePoint(wall.start) && finitePoint(wall.end) ? wallLength(wall) : 0;
+      const start = opening.centerT * length - opening.widthCm / 2;
+      const end = opening.centerT * length + opening.widthCm / 2;
+      if (opening.centerT < 0 || opening.centerT > 1 || start < -1e-9 || end > length + 1e-9) {
+        add('blocker', 'opening_outside_wall', 'Opening does not fit wholly on its wall: ' + opening.id + '.', [opening.id, wall.id]);
+        continue;
+      }
+      if (!openingIntervals.has(wall.id)) openingIntervals.set(wall.id, []);
+      openingIntervals.get(wall.id).push({ id: opening.id, start, end });
+    }
+    for (const intervals of openingIntervals.values()) {
+      intervals.sort((left, right) => left.start - right.start || compareUnicodeCodePoints(left.id, right.id));
+      for (let i = 1; i < intervals.length; i++) {
+        if (intervals[i].start < intervals[i - 1].end - 1e-9) {
+          add('blocker', 'overlapping_openings', 'Openings overlap on the same wall.', [intervals[i - 1].id, intervals[i].id]);
+        }
+      }
+    }
+
+    for (const room of rooms) add('warning', 'preserved_room_metadata', 'Room metadata is preserved but is not used to generate Carpentry geometry.', [room && room.id]);
+    for (const stair of stairs) add('warning', 'preserved_stair_metadata', 'Stair metadata is preserved but is not used to generate Carpentry geometry.', [stair && stair.id]);
+    for (const guide of guides) add('warning', 'preserved_guide_metadata', 'Guide metadata is preserved but is not used to generate Carpentry geometry.', [guide && guide.id]);
+    for (const opening of openings) {
+      add('warning', 'preserved_swing_metadata', 'Opening swing metadata is preserved but is not used to generate Carpentry geometry.', [opening && opening.id]);
+      if (opening && opening.mirrored) add('warning', 'preserved_mirror_metadata', 'Opening mirror metadata is preserved but is not used to generate Carpentry geometry.', [opening.id]);
+    }
+    return finish();
+  }
+
+  function carpentryExportFileName() {
+    return exportFileName('carpentry.json');
+  }
+
+  function downloadCarpentryExport() {
+    const data = createCarpentryExportData();
+    const text = JSON.stringify(data, null, 2) + '\n';
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    if (blob.size > CARPENTRY_MAX_BYTES) {
+      const diagnostics = [{
+        severity: 'blocker',
+        code: 'file_too_large',
+        message: 'Carpentry exchange file exceeds 10 MiB.',
+        sourceIds: [],
+      }];
+      showNotice('Carpentry-eksport blokkert · file_too_large');
+      return { downloaded: false, blockerCount: 1, warningCount: 0, diagnostics };
+    }
+    const diagnostics = validateCarpentryExportability(data);
+    const blockerCount = diagnostics.filter(diagnostic => diagnostic.severity === 'blocker').length;
+    const warningCount = diagnostics.filter(diagnostic => diagnostic.severity === 'warning').length;
+    if (blockerCount) {
+      const first = diagnostics.find(diagnostic => diagnostic.severity === 'blocker');
+      showNotice('Carpentry-eksport blokkert · ' + first.code);
+      return { downloaded: false, blockerCount, warningCount, diagnostics };
+    }
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = carpentryExportFileName();
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    showNotice('Carpentry-eksport lastet ned · 1 eksport · ' + warningCount + ' varsler.');
+    return { downloaded: true, blockerCount, warningCount, diagnostics };
+  }
+
   // === JSON SAVE / LOAD ===
   function saveJson() {
     const data = serializePlanData();
@@ -6387,6 +7072,7 @@
   document.getElementById('exportPdf').addEventListener('click', () => { closeChromeMenus(); exportPdf(); });
   document.getElementById('exportPng').addEventListener('click', () => { closeChromeMenus(); exportPng(); });
   document.getElementById('exportSvg').addEventListener('click', () => { closeChromeMenus(); exportSvg(); });
+  document.getElementById('exportCarpentry').addEventListener('click', () => { closeChromeMenus(); downloadCarpentryExport(); });
   document.getElementById('zoomFit').addEventListener('click', zoomFit);
   document.getElementById('zoomIn').addEventListener('click', () => {
     const r = svg.getBoundingClientRect();
@@ -6456,6 +7142,7 @@
     constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
+    createCarpentryExportData, validateCarpentryExportability, carpentryExportFileName, downloadCarpentryExport,
   };
 })();
 </script>

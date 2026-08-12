@@ -1,0 +1,30 @@
+{
+  "format": "floorplanify.carpentry",
+  "version": 1,
+  "source": {
+    "application": "Floorplanify",
+    "planVersion": 3,
+    "units": "cm",
+    "xAxis": "right",
+    "yAxis": "down",
+    "origin": "floorplan-canvas"
+  },
+  "project": {
+    "name": "Touching exterior shells",
+    "walls": [
+      {"id": "wall-1", "kind": "exterior", "start": {"x": 0, "y": 0}, "end": {"x": 200, "y": 0}},
+      {"id": "wall-2", "kind": "exterior", "start": {"x": 200, "y": 0}, "end": {"x": 200, "y": 200}},
+      {"id": "wall-3", "kind": "exterior", "start": {"x": 200, "y": 200}, "end": {"x": 0, "y": 200}},
+      {"id": "wall-4", "kind": "exterior", "start": {"x": 0, "y": 200}, "end": {"x": 0, "y": 0}},
+      {"id": "wall-5", "kind": "exterior", "start": {"x": 200, "y": 100}, "end": {"x": 300, "y": 100}},
+      {"id": "wall-6", "kind": "exterior", "start": {"x": 300, "y": 100}, "end": {"x": 300, "y": 160}},
+      {"id": "wall-7", "kind": "exterior", "start": {"x": 300, "y": 160}, "end": {"x": 200, "y": 160}},
+      {"id": "wall-8", "kind": "exterior", "start": {"x": 200, "y": 160}, "end": {"x": 200, "y": 100}}
+    ],
+    "rooms": [],
+    "openings": [],
+    "stairs": [],
+    "guides": []
+  },
+  "diagnostics": []
+}
