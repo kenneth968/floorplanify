@@ -42,7 +42,7 @@ rendering — no build step, no framework, no install.
      `http://localhost:8000`.
 2. The tool starts in **wall** mode. Click to place corners; `Enter` or
    double-click to finish the chain.
-3. Switch tool with the toolbar or these shortcuts:
+3. Switch tool with the left tool rail or these shortcuts:
 
 | Key | Action |
 | --- | --- |
