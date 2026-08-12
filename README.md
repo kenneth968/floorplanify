@@ -16,9 +16,10 @@ rendering — no build step, no framework, no install.
   Snapping til rutenett, 90°-tvang, valfri 45°-vinkel.
 - **Rooms** — dra eit rektangel, eller klikk hjørner for vilkårleg omriss.
   Automatisk arealbruk og sidevisning (m², lengder, eller begge).
-- **Doors and windows** — plasser på vegg. Dører har svingretning og
-  hengsleside; vinduer har to-glas konvensjon. Begge snappar til
-  veggepunkt, midtpunkt, og andre opningar på same vegg.
+- **Doors and windows** — place on walls with configurable width. Doors can be
+  single or double-leaf, with swing direction and hinge side; windows use the
+  two-pane convention. Both snap to wall endpoints, midpoints, and nearby
+  openings on the same wall.
 - **Stairs** — rektangel med trappetrinn og opp/ned-pil.
 - **Snap-to-length** — når du teiknar ein vegg, blir eksisterande vegger
   med same lengde markert grøne, og statuslinja viser "match: 5.00 m".

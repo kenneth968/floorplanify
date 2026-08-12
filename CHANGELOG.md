@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Configurable double doors.** Choose `Enkel` or `Dobbel` before placing a
+  door or while editing it. Width is the total clear opening, and double doors
+  render as two equal leaves in the editor and PDF/PNG/SVG output.
 - **Optional Carpentry handoff.** The secondary
   `Integrasjoner > Eksporter til Carpentry` action downloads a deterministic
   `*.carpentry.json` file for explicit import. Floorplanify remains the
@@ -67,6 +70,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Migration notes
 
+- Saved openings without `doorStyle` load as `single`. Carpentry v1 keeps the
+  total door width but does not carry double-leaf metadata.
 - Saved JSON files load without changes. Openings without a `mirror` key
   default to `false` (hinge on the start of the opening).
 - Sidebar `sections.collapse` preferences stay in `localStorage` under
