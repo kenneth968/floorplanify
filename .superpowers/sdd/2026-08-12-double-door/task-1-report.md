@@ -40,7 +40,8 @@ npx playwright test tests/floorplanify-core.spec.js --project=chromium
 
 ## Commit SHA(s)
 
-Recorded after commit below.
+- `24d5fc6df23db8ef6e4a5a7b717016a2426eb0e5` — implementation and tests
+- `840e66a325f4871a72166506cc20fa6d52c2617c` — task report
 
 ## Self-review
 
