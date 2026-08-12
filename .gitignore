@@ -33,6 +33,7 @@ logs/
 
 # OMC (orchestration) state
 .omc/
+.omo/
 .omx/
 
 # Local-only data
