@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'floorplanify.html'), 'utf8');
+const gitignore = fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8');
+
+assert.match(
+  gitignore,
+  /^\.omo\/$/m,
+  'generated browser-test evidence should stay out of git status'
+);
 
 function requireMatch(pattern, message) {
   assert.match(html, pattern, message);

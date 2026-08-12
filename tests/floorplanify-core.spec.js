@@ -927,7 +927,7 @@ test.describe('Carpentry integration control', () => {
     const populatedToolbarLayout = await measureToolbarAgainstIntegrationBaseline(page);
     expectToolbarToMatchIntegrationBaseline(populatedToolbarLayout);
 
-    for (const width of [375, 768, 1280]) {
+    for (const width of [375, 768, 840, 900, 960, 1024, 1100, 1180, 1280]) {
       await page.setViewportSize({ width, height: 720 });
       await details.evaluate((element) => { element.open = false; });
       const summary = details.locator(':scope > summary');
