@@ -32,9 +32,9 @@ async function openFloorplan(page) {
 async function measureToolbarAgainstIntegrationBaseline(page) {
   return page.evaluate(() => {
     const toolbarElement = document.getElementById('toolbar');
-    const detailsElement = document.getElementById('integrationsMenu');
-    const existingGroups = [...toolbarElement.querySelectorAll(':scope > .group')]
-      .filter((group) => group !== detailsElement);
+    const integrationButton = document.getElementById('integrationsMenuButton');
+    const integrationWrap = integrationButton.closest('.chrome-menu-wrap');
+    const existingGroups = [...toolbarElement.children].filter((element) => element !== integrationWrap);
     const isVisible = (element) => getComputedStyle(element).display !== 'none'
       && element.getClientRects().length > 0;
     const snapshotExistingGroups = () => existingGroups.map((group) => ({
@@ -55,32 +55,32 @@ async function measureToolbarAgainstIntegrationBaseline(page) {
       };
     };
 
-    const styleBefore = detailsElement.getAttribute('style');
-    const inlineDisplayBefore = detailsElement.style.display;
-    const detailsOpenBefore = detailsElement.open;
+    const styleBefore = integrationWrap.getAttribute('style');
+    const inlineDisplayBefore = integrationWrap.style.display;
+    const panelHiddenBefore = document.getElementById('integrationsMenu').hidden;
     const existingGroupsBefore = snapshotExistingGroups();
 
-    detailsElement.setAttribute('style', `${styleBefore || ''}; display: none !important;`);
+    integrationWrap.setAttribute('style', `${styleBefore || ''}; display: none !important;`);
     void toolbarElement.offsetHeight;
     const baseline = measure();
-    const detailsVisibleAtBaseline = isVisible(detailsElement);
+    const detailsVisibleAtBaseline = isVisible(integrationWrap);
     const existingGroupsAtBaseline = snapshotExistingGroups();
 
-    if (styleBefore === null) detailsElement.removeAttribute('style');
-    else detailsElement.setAttribute('style', styleBefore);
+    if (styleBefore === null) integrationWrap.removeAttribute('style');
+    else integrationWrap.setAttribute('style', styleBefore);
     void toolbarElement.offsetHeight;
 
     return {
       baseline,
       current: measure(),
       styleBefore,
-      styleAfter: detailsElement.getAttribute('style'),
+      styleAfter: integrationWrap.getAttribute('style'),
       inlineDisplayBefore,
-      inlineDisplayAfter: detailsElement.style.display,
-      detailsOpenBefore,
-      detailsOpenAfter: detailsElement.open,
+      inlineDisplayAfter: integrationWrap.style.display,
+      panelHiddenBefore,
+      panelHiddenAfter: document.getElementById('integrationsMenu').hidden,
       detailsVisibleAtBaseline,
-      detailsVisibleAfter: isVisible(detailsElement),
+      detailsVisibleAfter: isVisible(integrationWrap),
       existingGroupsBefore,
       existingGroupsAtBaseline,
       existingGroupsAfter: snapshotExistingGroups(),
@@ -95,8 +95,8 @@ function expectToolbarToMatchIntegrationBaseline(layout) {
   expect(layout.current.overflowX).toBe(layout.baseline.overflowX);
   expect(layout.styleAfter).toBe(layout.styleBefore);
   expect(layout.inlineDisplayAfter).toBe(layout.inlineDisplayBefore);
-  expect(layout.detailsOpenBefore).toBe(false);
-  expect(layout.detailsOpenAfter).toBe(false);
+  expect(layout.panelHiddenBefore).toBe(true);
+  expect(layout.panelHiddenAfter).toBe(true);
   expect(layout.detailsVisibleAtBaseline).toBe(false);
   expect(layout.detailsVisibleAfter).toBe(true);
   expect(layout.existingGroupsAtBaseline).toEqual(layout.existingGroupsBefore);
@@ -797,6 +797,7 @@ test.describe('Carpentry exchange', () => {
     expect(JSON.parse(nativeText).version).toBe(3);
 
     const svgDownloadPromise = page.waitForEvent('download');
+    await page.locator('#exportMenuButton').click();
     await page.locator('#exportSvg').click();
     const svgDownload = await svgDownloadPromise;
     expect(svgDownload.suggestedFilename()).toMatch(/\.svg$/);
@@ -804,45 +805,46 @@ test.describe('Carpentry exchange', () => {
 });
 
 test.describe('Carpentry integration control', () => {
-  test('is a single collapsed native disclosure with keyboard and focus access', async ({ page }) => {
-    const details = page.locator('#integrationsMenu');
-    const summary = details.locator(':scope > summary');
-    const button = details.locator(':scope > #exportCarpentry');
+  test('is a single collapsed chrome menu with keyboard and focus access', async ({ page }) => {
+    const menu = page.locator('#integrationsMenu');
+    const trigger = page.locator('#integrationsMenuButton');
+    const button = menu.locator(':scope > #exportCarpentry');
 
-    await expect(details).toHaveCount(1);
-    expect(await details.evaluate((element) => element.tagName)).toBe('DETAILS');
-    await expect(summary).toHaveCount(1);
-    expect(await summary.evaluate((element) => element.tagName)).toBe('SUMMARY');
-    await expect(summary).toHaveText('Integrasjoner');
-    await expect(details.locator('button')).toHaveCount(1);
+    await expect(menu).toHaveCount(1);
+    await expect(trigger).toHaveText('Integrasjoner');
+    await expect(trigger).toHaveAttribute('aria-controls', 'integrationsMenu');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu.locator('button')).toHaveCount(1);
     await expect(button).toHaveText('Eksporter til Carpentry');
-    await expect(details).not.toHaveAttribute('open', '');
+    await expect(menu).toBeHidden();
     await expect(button).toBeHidden();
 
-    await summary.focus();
-    await expect(summary).toBeFocused();
-    const focusOutline = await summary.evaluate((element) => {
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    const focusOutline = await trigger.evaluate((element) => {
       const style = getComputedStyle(element);
       return { style: style.outlineStyle, width: parseFloat(style.outlineWidth) };
     });
     expect(focusOutline.style).not.toBe('none');
     expect(focusOutline.width).toBeGreaterThan(0);
 
-    await summary.press('Enter');
-    await expect(details).toHaveAttribute('open', '');
+    await trigger.press('Enter');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(menu).toBeVisible();
     await expect(button).toBeVisible();
     await expect(button).toBeDisabled();
 
-    await summary.press('Space');
-    await expect(details).not.toHaveAttribute('open', '');
+    await trigger.press('Space');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu).toBeHidden();
     await expect(button).toBeHidden();
-    await summary.press('Space');
-    await expect(details).toHaveAttribute('open', '');
+    await trigger.press('Space');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     await expect(button).toBeVisible();
   });
 
   test('enables with content and reports the download and warning counts', async ({ page }) => {
-    const details = page.locator('#integrationsMenu');
+    const trigger = page.locator('#integrationsMenuButton');
     const button = page.locator('#exportCarpentry');
 
     await expect(button).toBeDisabled();
@@ -855,7 +857,7 @@ test.describe('Carpentry integration control', () => {
     const warningCount = await page.evaluate(() => window.__floorplanify
       .validateCarpentryExportability(window.__floorplanify.createCarpentryExportData())
       .filter(({ severity }) => severity === 'warning').length);
-    await details.evaluate((element) => { element.open = true; });
+    await trigger.click();
     const downloadPromise = page.waitForEvent('download');
     await button.click();
     const download = await downloadPromise;
@@ -873,9 +875,9 @@ test.describe('Carpentry integration control', () => {
     ));
     await installExchangeDocument(page, diagonal);
 
-    const details = page.locator('#integrationsMenu');
+    const trigger = page.locator('#integrationsMenuButton');
     const button = page.locator('#exportCarpentry');
-    await details.evaluate((element) => { element.open = true; });
+    await trigger.click();
     await expect(button).toBeEnabled();
     const firstBlocker = await page.evaluate(() => window.__floorplanify
       .validateCarpentryExportability(window.__floorplanify.createCarpentryExportData())
@@ -896,29 +898,25 @@ test.describe('Carpentry integration control', () => {
   test('preserves existing control order and stays compact without clipping', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     const toolbar = page.locator('#toolbar');
-    const details = page.locator('#integrationsMenu');
-    const existingGroupTitles = await toolbar.locator(':scope > .group').evaluateAll((groups) => groups
-      .filter((group) => group.id !== 'integrationsMenu')
-      .map((group) => group.querySelector('.group-title')?.textContent?.trim() || ''));
-    expect(existingGroupTitles).toEqual(['Fil', 'Verktøy', 'Tegn', 'Vis', 'Skriv ut', 'Rediger', 'Valgt']);
-    const integrationNeighbors = await details.evaluate((element) => ({
-      previous: element.previousElementSibling?.querySelector('.group-title')?.textContent?.trim(),
-      next: element.nextElementSibling?.querySelector('.group-title')?.textContent?.trim(),
+    const menu = page.locator('#integrationsMenu');
+    const trigger = page.locator('#integrationsMenuButton');
+    const menuLabels = await toolbar.locator(':scope > .chrome-menu-wrap > .menu-button').allTextContents();
+    expect(menuLabels).toEqual(['Vis', 'Eksporter', 'Integrasjoner']);
+    const integrationNeighbors = await trigger.evaluate((element) => ({
+      previous: element.parentElement.previousElementSibling?.querySelector('.menu-button')?.textContent?.trim(),
+      next: element.parentElement.nextElementSibling?.textContent?.trim(),
     }));
-    expect(integrationNeighbors).toEqual({ previous: 'Skriv ut', next: 'Rediger' });
+    expect(integrationNeighbors).toEqual({ previous: 'Eksporter', next: 'Tøm' });
 
     const desktopLayout = await page.evaluate(() => {
       const toolbarElement = document.getElementById('toolbar');
-      const printGroup = document.getElementById('exportPdf').closest('.group');
-      const editGroup = document.getElementById('undo').closest('.group');
       return {
         overflowX: toolbarElement.scrollWidth > toolbarElement.clientWidth,
-        printTop: printGroup.getBoundingClientRect().top,
-        editTop: editGroup.getBoundingClientRect().top,
+        height: toolbarElement.getBoundingClientRect().height,
       };
     });
     expect(desktopLayout.overflowX).toBe(false);
-    expect(Math.abs(desktopLayout.editTop - desktopLayout.printTop)).toBeLessThan(1);
+    expect(desktopLayout.height).toBeLessThanOrEqual(60);
 
     const blankToolbarLayout = await measureToolbarAgainstIntegrationBaseline(page);
     expectToolbarToMatchIntegrationBaseline(blankToolbarLayout);
@@ -929,52 +927,26 @@ test.describe('Carpentry integration control', () => {
 
     for (const width of [375, 768, 840, 900, 960, 1024, 1100, 1180, 1280]) {
       await page.setViewportSize({ width, height: 720 });
-      await details.evaluate((element) => { element.open = false; });
-      const summary = details.locator(':scope > summary');
-      await summary.scrollIntoViewIfNeeded();
-      await summary.focus();
-      await summary.press('Enter');
-      const bounds = await details.locator(':scope > #exportCarpentry').evaluate((element) => {
+      await page.evaluate(() => window.dispatchEvent(new MouseEvent('click')));
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.focus();
+      await trigger.press('Enter');
+      const bounds = await menu.evaluate((element) => {
         const rect = element.getBoundingClientRect();
-        const summaryRect = element.closest('details').querySelector(':scope > summary')
-          .getBoundingClientRect();
-        const existingGroupRects = [...document.querySelectorAll('#toolbar > .group')]
-          .map((group) => group.getBoundingClientRect());
-        const overlapsExistingGroup = existingGroupRects
-          .some((group) => {
-            return rect.left < group.right
-              && rect.right > group.left
-              && rect.top < group.bottom
-              && rect.bottom > group.top;
-          });
-        const minimumGroupGap = (target) => Math.min(...existingGroupRects.map((group) => {
-          const horizontal = Math.max(group.left - target.right, target.left - group.right, 0);
-          const vertical = Math.max(group.top - target.bottom, target.top - group.bottom, 0);
-          return Math.hypot(horizontal, vertical);
-        }));
         return {
           left: rect.left,
           right: rect.right,
           top: rect.top,
           bottom: rect.bottom,
-          overlapsExistingGroup,
-          buttonGroupGap: minimumGroupGap(rect),
-          summaryGroupGap: minimumGroupGap(summaryRect),
         };
       });
       const overflow = await page.evaluate(() => ({
-        toolbarX: document.getElementById('toolbar').scrollWidth
-          > document.getElementById('toolbar').clientWidth,
         bodyX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       }));
       expect(bounds.left).toBeGreaterThanOrEqual(0);
       expect(bounds.right).toBeLessThanOrEqual(width);
       expect(bounds.top).toBeGreaterThanOrEqual(0);
       expect(bounds.bottom).toBeLessThanOrEqual(720);
-      expect(bounds.overlapsExistingGroup).toBe(false);
-      expect(bounds.buttonGroupGap).toBeGreaterThan(0);
-      expect(bounds.summaryGroupGap).toBeGreaterThan(0);
-      expect(overflow.toolbarX).toBe(false);
       expect(overflow.bodyX).toBe(false);
     }
   });
