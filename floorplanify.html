@@ -1211,6 +1211,7 @@
   const DEFAULT_DOOR_WIDTH_CM = 90;
   const DEFAULT_WINDOW_WIDTH_CM = 120;
   const LEGACY_WINDOW_WIDTH_CM = 60;
+  const CARPENTRY_MAX_BYTES = 10 * 1024 * 1024;
   const SIDEBAR_PREF_KEY = 'floorplanify.sidebar.v1';
   const SIDEBAR_MIN_W = 220;
   const SIDEBAR_MAX_W = 420;
@@ -6243,7 +6244,165 @@
     return { x: point && point.x, y: point && point.y };
   }
 
+  function mergeCarpentryExteriorChains(walls, openings, idCounts) {
+    const exteriorWalls = walls.filter(wall => wall.kind === 'exterior');
+    const wallIndexes = new Map(exteriorWalls.map((wall, index) => [wall, index]));
+    const parents = exteriorWalls.map((_, index) => index);
+    function find(index) {
+      while (parents[index] !== index) {
+        parents[index] = parents[parents[index]];
+        index = parents[index];
+      }
+      return index;
+    }
+    function union(left, right) {
+      const a = find(left);
+      const b = find(right);
+      if (a !== b) parents[b] = a;
+    }
+    function pointKey(point) {
+      return JSON.stringify([point.x, point.y]);
+    }
+    function collinearAt(first, second, point) {
+      const firstOther = pointKey(first.start) === pointKey(point) ? first.end : first.start;
+      const secondOther = pointKey(second.start) === pointKey(point) ? second.end : second.start;
+      return Math.abs(
+        (point.x - firstOther.x) * (secondOther.y - point.y) -
+        (point.y - firstOther.y) * (secondOther.x - point.x)
+      ) <= 1e-9;
+    }
+
+    const incident = new Map();
+    for (const wall of exteriorWalls) {
+      for (const point of [wall.start, wall.end]) {
+        const key = pointKey(point);
+        if (!incident.has(key)) incident.set(key, { point, walls: [] });
+        incident.get(key).walls.push(wall);
+      }
+    }
+    for (const { point, walls: atPoint } of incident.values()) {
+      if (atPoint.length === 2 &&
+          idCounts.get(atPoint[0].id) === 1 && idCounts.get(atPoint[1].id) === 1 &&
+          collinearAt(atPoint[0], atPoint[1], point)) {
+        union(wallIndexes.get(atPoint[0]), wallIndexes.get(atPoint[1]));
+      }
+    }
+
+    const components = new Map();
+    for (let index = 0; index < exteriorWalls.length; index++) {
+      const root = find(index);
+      if (!components.has(root)) components.set(root, []);
+      components.get(root).push(exteriorWalls[index]);
+    }
+
+    const mergedWalls = walls.filter(wall => wall.kind !== 'exterior');
+    const wallMapping = new Map();
+    for (const component of components.values()) {
+      if (component.length === 1) {
+        const wall = component[0];
+        mergedWalls.push(wall);
+        wallMapping.set(wall.id, { source: wall, merged: wall });
+        continue;
+      }
+      const endpointCounts = new Map();
+      for (const wall of component) {
+        for (const point of [wall.start, wall.end]) {
+          const key = pointKey(point);
+          if (!endpointCounts.has(key)) endpointCounts.set(key, { point, count: 0 });
+          endpointCounts.get(key).count++;
+        }
+      }
+      const endpoints = Array.from(endpointCounts.values())
+        .filter(({ count }) => count === 1)
+        .map(({ point }) => point);
+      if (endpoints.length !== 2) {
+        mergedWalls.push(...component);
+        for (const wall of component) wallMapping.set(wall.id, { source: wall, merged: wall });
+        continue;
+      }
+      const survivor = component.slice()
+        .sort((left, right) => compareUnicodeCodePoints(left.id, right.id))[0];
+      const direction = {
+        x: survivor.end.x - survivor.start.x,
+        y: survivor.end.y - survivor.start.y,
+      };
+      const projection = point => (
+        (point.x - survivor.start.x) * direction.x +
+        (point.y - survivor.start.y) * direction.y
+      );
+      endpoints.sort((left, right) => projection(left) - projection(right));
+      const merged = {
+        id: survivor.id,
+        kind: 'exterior',
+        start: carpentryPoint(endpoints[0]),
+        end: carpentryPoint(endpoints[1]),
+      };
+      mergedWalls.push(merged);
+      for (const wall of component) wallMapping.set(wall.id, { source: wall, merged });
+    }
+
+    const mergedOpenings = openings.map(opening => {
+      const mapping = wallMapping.get(opening.wallId);
+      if (!mapping || mapping.source === mapping.merged) return opening;
+      const sourcePoint = {
+        x: mapping.source.start.x + (mapping.source.end.x - mapping.source.start.x) * opening.centerT,
+        y: mapping.source.start.y + (mapping.source.end.y - mapping.source.start.y) * opening.centerT,
+      };
+      const dx = mapping.merged.end.x - mapping.merged.start.x;
+      const dy = mapping.merged.end.y - mapping.merged.start.y;
+      const lengthSquared = dx * dx + dy * dy;
+      return Object.assign({}, opening, {
+        wallId: mapping.merged.id,
+        centerT: lengthSquared ? (
+          (sourcePoint.x - mapping.merged.start.x) * dx +
+          (sourcePoint.y - mapping.merged.start.y) * dy
+        ) / lengthSquared : opening.centerT,
+      });
+    });
+    return { walls: mergedWalls, openings: mergedOpenings };
+  }
+
   function createCarpentryExportData() {
+    const walls = state.walls.map(wall => ({
+      id: String(wall.id),
+      kind: wall.type === 'part' ? 'interior' : 'exterior',
+      start: carpentryPoint(wall.a),
+      end: carpentryPoint(wall.b),
+    }));
+    const openings = state.openings.map(opening => ({
+      id: String(opening.id),
+      kind: opening.type === 'window' ? 'window' : 'door',
+      wallId: String(opening.wallId),
+      centerT: opening.t,
+      widthCm: opening.width == null ? openingLegacyWidth(opening.type) : opening.width,
+      swing: opening.swing === 'right' ? 'right' : 'left',
+      mirrored: opening.mirror === true,
+    }));
+    const rooms = state.rooms.map(room => ({
+      id: String(room.id),
+      name: room.name,
+      points: (room.points || []).map(carpentryPoint),
+    }));
+    const stairs = state.stairs.map(stair => ({
+      id: String(stair.id),
+      rect: {
+        x: stair.rect && stair.rect.x,
+        y: stair.rect && stair.rect.y,
+        w: stair.rect && stair.rect.w,
+        h: stair.rect && stair.rect.h,
+      },
+      dir: stair.dir === 'down' ? 'down' : 'up',
+    }));
+    const guides = state.guides.map(guide => ({
+      id: String(guide.id),
+      a: carpentryPoint(guide.a),
+      b: carpentryPoint(guide.b),
+    }));
+    const idCounts = new Map();
+    for (const entity of [...walls, ...rooms, ...openings, ...stairs, ...guides]) {
+      idCounts.set(entity.id, (idCounts.get(entity.id) || 0) + 1);
+    }
+    const normalized = mergeCarpentryExteriorChains(walls, openings, idCounts);
     return {
       format: 'floorplanify.carpentry',
       version: 1,
@@ -6257,41 +6416,11 @@
       },
       project: {
         name: state.projectName,
-        walls: carpentrySortedEntities(state.walls).map(wall => ({
-          id: wall.id,
-          kind: wall.type === 'part' ? 'interior' : 'exterior',
-          start: carpentryPoint(wall.a),
-          end: carpentryPoint(wall.b),
-        })),
-        rooms: carpentrySortedEntities(state.rooms).map(room => ({
-          id: room.id,
-          name: room.name,
-          points: (room.points || []).map(carpentryPoint),
-        })),
-        openings: carpentrySortedEntities(state.openings).map(opening => ({
-          id: opening.id,
-          kind: opening.type === 'window' ? 'window' : 'door',
-          wallId: opening.wallId,
-          centerT: opening.t,
-          widthCm: opening.width == null ? openingLegacyWidth(opening.type) : opening.width,
-          swing: opening.swing === 'right' ? 'right' : 'left',
-          mirrored: opening.mirror === true,
-        })),
-        stairs: carpentrySortedEntities(state.stairs).map(stair => ({
-          id: stair.id,
-          rect: {
-            x: stair.rect && stair.rect.x,
-            y: stair.rect && stair.rect.y,
-            w: stair.rect && stair.rect.w,
-            h: stair.rect && stair.rect.h,
-          },
-          dir: stair.dir === 'down' ? 'down' : 'up',
-        })),
-        guides: carpentrySortedEntities(state.guides).map(guide => ({
-          id: guide.id,
-          a: carpentryPoint(guide.a),
-          b: carpentryPoint(guide.b),
-        })),
+        walls: carpentrySortedEntities(normalized.walls),
+        rooms: carpentrySortedEntities(rooms),
+        openings: carpentrySortedEntities(normalized.openings),
+        stairs: carpentrySortedEntities(stairs),
+        guides: carpentrySortedEntities(guides),
       },
       diagnostics: [],
     };
@@ -6732,6 +6861,18 @@
 
   function downloadCarpentryExport() {
     const data = createCarpentryExportData();
+    const text = JSON.stringify(data, null, 2) + '\n';
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    if (blob.size > CARPENTRY_MAX_BYTES) {
+      const diagnostics = [{
+        severity: 'blocker',
+        code: 'file_too_large',
+        message: 'Carpentry exchange file exceeds 10 MiB.',
+        sourceIds: [],
+      }];
+      showNotice('Carpentry-eksport blokkert · file_too_large');
+      return { downloaded: false, blockerCount: 1, warningCount: 0, diagnostics };
+    }
     const diagnostics = validateCarpentryExportability(data);
     const blockerCount = diagnostics.filter(diagnostic => diagnostic.severity === 'blocker').length;
     const warningCount = diagnostics.filter(diagnostic => diagnostic.severity === 'warning').length;
@@ -6740,8 +6881,6 @@
       showNotice('Carpentry-eksport blokkert · ' + first.code);
       return { downloaded: false, blockerCount, warningCount, diagnostics };
     }
-    const text = JSON.stringify(data, null, 2) + '\n';
-    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;

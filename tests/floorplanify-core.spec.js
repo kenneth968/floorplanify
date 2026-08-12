@@ -772,6 +772,209 @@ test.describe('Carpentry exchange', () => {
       ]);
   });
 
+  test('merges exterior segments split by an interior partition without moving openings', async ({ page }) => {
+    await installExchangeDocument(page, CARPENTRY_FIXTURE);
+
+    const result = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      api.addWall({ x: 200, y: 0 }, { x: 200, y: 390 }, 'part');
+      const document = api.createCarpentryExportData();
+      const opening = document.project.openings.find(({ id }) => id === 'door-1');
+      const wall = document.project.walls.find(({ id }) => id === opening.wallId);
+      return {
+        nativeWallCount: api.state.walls.length,
+        document,
+        blockerCodes: api.validateCarpentryExportability(document)
+          .filter(({ severity }) => severity === 'blocker')
+          .map(({ code }) => code),
+        openingCenter: {
+          x: wall.start.x + (wall.end.x - wall.start.x) * opening.centerT,
+          y: wall.start.y + (wall.end.y - wall.start.y) * opening.centerT,
+        },
+      };
+    });
+
+    expect(result.nativeWallCount).toBe(7);
+    expect(result.document.project.walls.filter(({ kind }) => kind === 'exterior')).toHaveLength(4);
+    expect(result.document.project.walls.filter(({ kind }) => kind === 'interior')).toHaveLength(1);
+    expect(result.document.project.openings[0]).toMatchObject({
+      id: 'door-1',
+      centerT: 0.5,
+    });
+    expect(result.openingCenter).toEqual({ x: 295, y: 0 });
+    expect(result.blockerCodes).toEqual([]);
+  });
+
+  test('blocks Carpentry downloads whose canonical UTF-8 output exceeds 10 MiB', async ({ page }) => {
+    await installExchangeDocument(page, CARPENTRY_FIXTURE);
+    const noDownload = page.waitForEvent('download', { timeout: 1000 })
+      .then(() => false, () => true);
+    const result = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      const previousName = api.state.projectName;
+      const previousEnd = { ...api.state.walls[0].b };
+      api.state.projectName = 'ø'.repeat(5 * 1024 * 1024);
+      api.state.walls[0].b.y = 1;
+      try {
+        return api.downloadCarpentryExport();
+      } finally {
+        api.state.projectName = previousName;
+        api.state.walls[0].b = previousEnd;
+      }
+    });
+
+    expect(await noDownload).toBe(true);
+    expect(result).toMatchObject({ downloaded: false, blockerCount: 1 });
+    expect(result.diagnostics).toEqual([{
+      severity: 'blocker',
+      code: 'file_too_large',
+      message: 'Carpentry exchange file exceeds 10 MiB.',
+      sourceIds: [],
+    }]);
+  });
+
+  test('allows a Carpentry download whose canonical UTF-8 output is exactly 10 MiB', async ({ page }) => {
+    await installExchangeDocument(page, CARPENTRY_FIXTURE);
+    const preparedSize = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      api.state.projectName = '';
+      const emptyNameText = JSON.stringify(api.createCarpentryExportData(), null, 2) + '\n';
+      const emptyNameBytes = new Blob([emptyNameText]).size;
+      api.state.projectName = 'a'.repeat(10 * 1024 * 1024 - emptyNameBytes);
+      const exactText = JSON.stringify(api.createCarpentryExportData(), null, 2) + '\n';
+      return new Blob([exactText]).size;
+    });
+    expect(preparedSize).toBe(10 * 1024 * 1024);
+
+    const result = await page.evaluate(() => window.__floorplanify.downloadCarpentryExport());
+    expect(result).toMatchObject({ downloaded: true, blockerCount: 0 });
+  });
+
+  test('coerces numeric native entity IDs and wall references at the exchange boundary', async ({ page }) => {
+    const native = {
+      version: 3,
+      projectName: 'Numeric native IDs',
+      roomInfo: 'both',
+      scale: 0,
+      units: 'auto',
+      snap: 10,
+      openingWidths: { door: 90, window: 120 },
+      walls: CARPENTRY_FIXTURE.project.walls.map((wall, index) => ({
+        id: index + 1,
+        a: wall.start,
+        b: wall.end,
+        type: 'ext',
+      })),
+      rooms: [{
+        id: 5,
+        name: 'Numeric room',
+        points: CARPENTRY_FIXTURE.project.rooms[0].points,
+        color: '#f3c45d',
+      }],
+      openings: [{
+        id: 6,
+        wallId: 1,
+        t: 0.5,
+        type: 'door',
+        width: 90,
+        swing: 'left',
+        mirror: false,
+      }],
+      stairs: [{ id: 7, rect: { x: 50, y: 50, w: 80, h: 160 }, dir: 'up' }],
+      guides: [{ id: 8, a: { x: 0, y: 450 }, b: { x: 590, y: 450 } }],
+      nextId: 9,
+    };
+    await page.locator('#loadJsonInput').setInputFiles({
+      name: 'numeric-native-v3.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(native)),
+    });
+    await expect.poll(() => page.evaluate(() => window.__floorplanify.state.walls.length)).toBe(4);
+
+    const result = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      const document = api.createCarpentryExportData();
+      const entities = [
+        ...document.project.walls,
+        ...document.project.rooms,
+        ...document.project.openings,
+        ...document.project.stairs,
+        ...document.project.guides,
+      ];
+      return {
+        ids: entities.map(({ id }) => id),
+        wallIds: document.project.openings.map(({ wallId }) => wallId),
+        exportedWallIds: document.project.walls.map(({ id }) => id),
+        blockers: api.validateCarpentryExportability(document)
+          .filter(({ severity }) => severity === 'blocker'),
+      };
+    });
+
+    expect(result.ids.every((id) => typeof id === 'string')).toBe(true);
+    expect(result.wallIds.every((id) => typeof id === 'string')).toBe(true);
+    expect(result.exportedWallIds).toContain(result.wallIds[0]);
+    expect(result.blockers).toEqual([]);
+
+    const download = await callCarpentryDownload(page);
+    expect(download.result).toMatchObject({ downloaded: true, blockerCount: 0 });
+  });
+
+  test('keeps string-colliding native wall IDs visible to duplicate validation', async ({ page }) => {
+    await installExchangeDocument(page, CARPENTRY_FIXTURE);
+    const result = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      api.state.walls = [
+        { id: 1, a: { x: 0, y: 0 }, b: { x: 295, y: 0 }, type: 'ext' },
+        { id: '1', a: { x: 295, y: 0 }, b: { x: 590, y: 0 }, type: 'ext' },
+        ...api.state.walls.slice(1),
+      ];
+      api.state.openings = [];
+      const document = api.createCarpentryExportData();
+      return {
+        topWallIds: document.project.walls
+          .filter(({ start, end }) => start.y === 0 && end.y === 0)
+          .map(({ id }) => id),
+        blockers: api.validateCarpentryExportability(document)
+          .filter(({ severity }) => severity === 'blocker'),
+      };
+    });
+
+    expect(result.topWallIds).toEqual(['1', '1']);
+    expect(result.blockers).toContainEqual(expect.objectContaining({
+      code: 'duplicate_id',
+      sourceIds: ['1'],
+    }));
+  });
+
+  test('does not merge away an exterior ID that collides with another entity kind', async ({ page }) => {
+    await installExchangeDocument(page, CARPENTRY_FIXTURE);
+    const result = await page.evaluate(() => {
+      const api = window.__floorplanify;
+      api.addWall({ x: 200, y: 0 }, { x: 200, y: 390 }, 'part');
+      const interior = api.state.walls.find(({ type }) => type === 'part');
+      interior.id = 'wall-1';
+      const document = api.createCarpentryExportData();
+      const allIds = [
+        ...document.project.walls,
+        ...document.project.rooms,
+        ...document.project.openings,
+        ...document.project.stairs,
+        ...document.project.guides,
+      ].map(({ id }) => id);
+      return {
+        collisionCount: allIds.filter((id) => id === 'wall-1').length,
+        blockers: api.validateCarpentryExportability(document)
+          .filter(({ severity }) => severity === 'blocker'),
+      };
+    });
+
+    expect(result.collisionCount).toBe(2);
+    expect(result.blockers).toContainEqual(expect.objectContaining({
+      code: 'duplicate_id',
+      sourceIds: ['wall-1'],
+    }));
+  });
+
   test('blocks only Carpentry download for a diagonal plan while JSON and SVG remain available', async ({ page }) => {
     const diagonal = JSON.parse(fs.readFileSync(
       path.join(INVALID_FIXTURE_DIR, 'diagonal-wall.json'),
