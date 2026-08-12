@@ -152,6 +152,9 @@ async function currentPlan(page) {
         type: opening.type,
         width: openingWidth(opening),
         t: opening.t,
+        swing: opening.swing,
+        mirror: opening.mirror,
+        doorStyle: opening.doorStyle,
       })),
     };
   });
@@ -301,6 +304,55 @@ test('door and window placement remains visible', async ({ page }) => {
   await expect(page.locator('#exportPng')).toBeEnabled();
   await expect(page.locator('#exportSvg')).toBeEnabled();
   await page.screenshot({ path: EVIDENCE_SCREENSHOT, fullPage: true });
+});
+
+test('wide double door can be chosen before placement and survives native save load', async ({ page }) => {
+  await createRectangleRoom(page);
+  await page.getByRole('button', { name: 'Dør-verktøy' }).click();
+  await page.locator('#doorStyle').selectOption('double');
+  await page.locator('#openingWidth').fill('400');
+  await clickCanvasAtCm(page, 0, -200);
+
+  let door = (await currentPlan(page)).openings[0];
+  expect(door).toMatchObject({ type: 'door', width: 400, doorStyle: 'double' });
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#saveJson').click();
+  const savedText = await downloadText(await downloadPromise);
+  expect(JSON.parse(savedText)).toMatchObject({
+    doorStyle: 'double',
+    openings: [{ width: 400, doorStyle: 'double' }],
+  });
+
+  await page.locator('#clear').click();
+  await page.locator('#confirmOk').click();
+  await page.locator('#loadJsonInput').setInputFiles({
+    name: 'double-door.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(savedText),
+  });
+  await expect.poll(async () => (await currentPlan(page)).openings.length).toBe(1);
+  door = (await currentPlan(page)).openings[0];
+  expect(door).toMatchObject({ width: 400, doorStyle: 'double' });
+  await expect(page.locator('#doorStyle')).toHaveValue('double');
+});
+
+test('legacy and invalid door styles normalize to single', async ({ page }) => {
+  const legacy = {
+    version: 3,
+    walls: [{ id: 'w1', a: { x: 0, y: 0 }, b: { x: 500, y: 0 }, type: 'ext' }],
+    rooms: [], stairs: [], guides: [],
+    openings: [
+      { id: 'o1', wallId: 'w1', t: 0.3, type: 'door', width: 90 },
+      { id: 'o2', wallId: 'w1', t: 0.7, type: 'door', width: 90, doorStyle: 'folding' },
+    ],
+  };
+  await page.locator('#loadJsonInput').setInputFiles({
+    name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(legacy)),
+  });
+  await expect.poll(async () => (await currentPlan(page)).openings.length).toBe(2);
+  expect((await currentPlan(page)).openings.map(({ doorStyle }) => doorStyle))
+    .toEqual(['single', 'single']);
 });
 
 test('undo redo remains reversible', async ({ page }) => {
