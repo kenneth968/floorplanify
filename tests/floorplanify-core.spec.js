@@ -369,6 +369,105 @@ test('double door renders two leaves and matching print geometry', async ({ page
   expect(printCounts).toEqual({ leaves: 2, swings: 2, hinges: 2 });
 });
 
+test('double door leaf geometry is exact across wall directions and swing sides', async ({ page }) => {
+  const cases = [
+    {
+      name: 'horizontal left', wall: { a: { x: 0, y: 0 }, b: { x: 400, y: 0 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: 60 }, sweep: 1 },
+        { side: 'end', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: 60 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'horizontal right', wall: { a: { x: 0, y: 0 }, b: { x: 400, y: 0 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: -60 }, sweep: 0 },
+        { side: 'end', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: -60 }, sweep: 1 },
+      ],
+    },
+    {
+      name: 'reversed horizontal left', wall: { a: { x: 400, y: 0 }, b: { x: 0, y: 0 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: -60 }, sweep: 1 },
+        { side: 'end', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: -60 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'reversed horizontal right', wall: { a: { x: 400, y: 0 }, b: { x: 0, y: 0 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 260, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 260, y: 60 }, sweep: 0 },
+        { side: 'end', hinge: { x: 140, y: 0 }, closedEnd: { x: 200, y: 0 }, radius: 60, swingEnd: { x: 140, y: 60 }, sweep: 1 },
+      ],
+    },
+    {
+      name: 'vertical left', wall: { a: { x: 10, y: 20 }, b: { x: 10, y: 420 } }, swing: 'left',
+      want: [
+        { side: 'start', hinge: { x: 10, y: 160 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: -50, y: 160 }, sweep: 1 },
+        { side: 'end', hinge: { x: 10, y: 280 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: -50, y: 280 }, sweep: 0 },
+      ],
+    },
+    {
+      name: 'vertical right', wall: { a: { x: 10, y: 20 }, b: { x: 10, y: 420 } }, swing: 'right',
+      want: [
+        { side: 'start', hinge: { x: 10, y: 160 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: 70, y: 160 }, sweep: 0 },
+        { side: 'end', hinge: { x: 10, y: 280 }, closedEnd: { x: 10, y: 220 }, radius: 60, swingEnd: { x: 70, y: 280 }, sweep: 1 },
+      ],
+    },
+  ];
+
+  const results = await page.evaluate((geometryCases) => geometryCases.map(({ name, wall, swing }) => ({
+    name,
+    geometry: window.__floorplanify.doorLeafGeometry(wall, {
+      type: 'door', doorStyle: 'double', width: 120, t: 0.5, swing,
+    }),
+  })), cases);
+
+  for (const { name, want } of cases) {
+    expect(results.find((result) => result.name === name).geometry, name).toEqual(want);
+  }
+});
+
+test('window copy paths omit doorStyle while copied double doors preserve it', async ({ page }) => {
+  const ids = await page.evaluate(() => {
+    const api = window.__floorplanify;
+    const wall = api.addWall({ x: -450, y: 0 }, { x: 450, y: 0 }, 'ext');
+    const windowOpening = api.addOpening(wall.id, 0.2, 'window', 120);
+    const door = api.addOpening(wall.id, 0.7, 'door', 180, 'double');
+    api.render();
+    return { wallId: wall.id, windowId: windowOpening.id, doorId: door.id };
+  });
+
+  await page.locator(`[data-sidebar-action="select"][data-type="opening"][data-id="${ids.windowId}"]`).click();
+  await page.locator(`[data-sidebar-action="duplicate"][data-type="opening"][data-id="${ids.windowId}"]`).click();
+
+  const copied = await page.evaluate(({ windowId, doorId }) => {
+    const api = window.__floorplanify;
+    const duplicatedWindowId = api.state.selection.id;
+    api.state.selection = { type: 'opening', id: windowId };
+    api.copySelection();
+    api.pasteClipboard();
+    const pastedWindowId = api.state.selection.id;
+    api.state.selection = { type: 'opening', id: doorId };
+    api.copySelection();
+    api.pasteClipboard();
+    const pastedDoorId = api.state.selection.id;
+    return [duplicatedWindowId, pastedWindowId, pastedDoorId].map((id) => {
+      const opening = api.state.openings.find((candidate) => candidate.id === id);
+      return {
+        type: opening.type,
+        ownsDoorStyle: Object.prototype.hasOwnProperty.call(opening, 'doorStyle'),
+        doorStyle: opening.doorStyle,
+      };
+    });
+  }, ids);
+
+  expect(copied).toEqual([
+    { type: 'window', ownsDoorStyle: false, doorStyle: undefined },
+    { type: 'window', ownsDoorStyle: false, doorStyle: undefined },
+    { type: 'door', ownsDoorStyle: true, doorStyle: 'double' },
+  ]);
+});
+
 test('existing door converts to double without changing width or position', async ({ page }) => {
   await createRectangleRoom(page);
   await placeOpening(page, 'Dør-verktøy', { x: 0, y: -200 });

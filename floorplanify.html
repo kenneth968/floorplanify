@@ -1516,7 +1516,7 @@
       tSnap: snapT != null,
       type,
       width: openingDefaultWidth(type),
-      doorStyle: type === 'door' ? normalizeDoorStyle(state.doorStyle) : 'single',
+      ...(type === 'door' ? { doorStyle: normalizeDoorStyle(state.doorStyle) } : {}),
     };
   }
 
@@ -1982,7 +1982,7 @@
       if (copy) {
         copy.swing = src.swing || 'left';
         copy.mirror = src.mirror === true;
-        copy.doorStyle = openingDoorStyle(src);
+        if (copy.type === 'door') copy.doorStyle = openingDoorStyle(src);
       }
     } else if (type === 'stair') {
       copy = addStair({ x: src.rect.x + off, y: src.rect.y + off, w: src.rect.w, h: src.rect.h }, src.dir);
@@ -4419,7 +4419,7 @@
           type: placement.type,
           swing: 'left',
           width: placement.width,
-          doorStyle: placement.doorStyle,
+          ...(placement.type === 'door' ? { doorStyle: placement.doorStyle } : {}),
           tSnap: placement.tSnap,
         };
       } else {
@@ -5134,7 +5134,7 @@
         width: openingWidth(o),
         swing: o.swing || 'left',
         mirror: o.mirror === true,
-        doorStyle: openingDoorStyle(o),
+        ...(o.type === 'door' ? { doorStyle: openingDoorStyle(o) } : {}),
       }));
   }
   function addWallOpeningCopies(wall, item) {
@@ -5143,7 +5143,7 @@
       if (opening) {
         opening.swing = c.swing || 'left';
         opening.mirror = c.mirror === true;
-        opening.doorStyle = normalizeDoorStyle(c.doorStyle);
+        if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(c.doorStyle);
       }
     }
   }
@@ -5170,7 +5170,7 @@
         width: openingWidth(o),
         swing: o.swing || 'left',
         mirror: o.mirror === true,
-        doorStyle: openingDoorStyle(o),
+        ...(o.type === 'door' ? { doorStyle: openingDoorStyle(o) } : {}),
       });
     }
     return copies;
@@ -5207,7 +5207,7 @@
         width: openingWidth(obj),
         swing: obj.swing || 'left',
         mirror: obj.mirror === true,
-        doorStyle: openingDoorStyle(obj),
+        ...(obj.type === 'door' ? { doorStyle: openingDoorStyle(obj) } : {}),
       };
     }
     if (type === 'stair') return { kind: 'stair', rect: Object.assign({}, obj.rect), dir: obj.dir || 'up' };
@@ -5275,7 +5275,7 @@
       if (opening) {
         opening.swing = c.swing || 'left';
         opening.mirror = c.mirror === true;
-        opening.doorStyle = normalizeDoorStyle(c.doorStyle);
+        if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(c.doorStyle);
       }
     }
   }
@@ -5315,7 +5315,7 @@
       if (!opening) return null;
       opening.swing = item.swing || 'left';
       opening.mirror = item.mirror === true;
-      opening.doorStyle = normalizeDoorStyle(item.doorStyle);
+      if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(item.doorStyle);
       return { type: 'opening', id: opening.id };
     }
     if (item.kind === 'stair') {
@@ -5359,7 +5359,7 @@
         if (opening) {
           opening.swing = item.swing || 'left';
           opening.mirror = item.mirror === true;
-          opening.doorStyle = normalizeDoorStyle(item.doorStyle);
+          if (opening.type === 'door') opening.doorStyle = normalizeDoorStyle(item.doorStyle);
           state.selection = { type: 'opening', id: opening.id };
           if (clip && !Array.isArray(clip)) clip.pasteCount = pasteIndex;
           else state.clipboard = { items, pasteCount: pasteIndex };
