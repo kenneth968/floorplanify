@@ -316,6 +316,14 @@ test('wide double door can be chosen before placement and survives native save l
   let door = (await currentPlan(page)).openings[0];
   expect(door).toMatchObject({ type: 'door', width: 400, doorStyle: 'double' });
 
+  const carpentryOpening = await page.evaluate(() => (
+    window.__floorplanify.createCarpentryExportData().project.openings[0]
+  ));
+  expect(carpentryOpening).toMatchObject({ kind: 'door', widthCm: 400 });
+  expect(Object.keys(carpentryOpening).sort()).toEqual(
+    ['centerT', 'id', 'kind', 'mirrored', 'swing', 'wallId', 'widthCm'].sort(),
+  );
+
   const downloadPromise = page.waitForEvent('download');
   await page.locator('#saveJson').click();
   const savedText = await downloadText(await downloadPromise);
@@ -335,6 +343,30 @@ test('wide double door can be chosen before placement and survives native save l
   door = (await currentPlan(page)).openings[0];
   expect(door).toMatchObject({ width: 400, doorStyle: 'double' });
   await expect(page.locator('#doorStyle')).toHaveValue('double');
+});
+
+test('double door renders two leaves and matching print geometry', async ({ page }) => {
+  await createRectangleRoom(page);
+  await page.getByRole('button', { name: 'Dør-verktøy' }).click();
+  await page.locator('#doorStyle').selectOption('double');
+  await page.locator('#openingWidth').fill('400');
+  await clickCanvasAtCm(page, 0, -200);
+
+  await expect(page.locator('#layer-openings [data-door-leaf]')).toHaveCount(2);
+  await expect(page.locator('#layer-openings [data-door-swing]')).toHaveCount(2);
+  await expect(page.locator('#layer-openings [data-door-hinge]')).toHaveCount(2);
+
+  const printCounts = await page.evaluate(() => {
+    const api = window.__floorplanify;
+    const spec = api.printPageSpec();
+    const svg = api.buildPrintSvg(spec.bb, spec.scale, false, spec);
+    return {
+      leaves: svg.querySelectorAll('[data-door-leaf]').length,
+      swings: svg.querySelectorAll('[data-door-swing]').length,
+      hinges: svg.querySelectorAll('[data-door-hinge]').length,
+    };
+  });
+  expect(printCounts).toEqual({ leaves: 2, swings: 2, hinges: 2 });
 });
 
 test('existing door converts to double without changing width or position', async ({ page }) => {

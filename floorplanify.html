@@ -2688,6 +2688,37 @@
     }
   }
 
+  function doorLeafGeometry(wall, opening) {
+    const dx = wall.b.x - wall.a.x;
+    const dy = wall.b.y - wall.a.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return [];
+    const ux = dx / len, uy = dy / len;
+    const nx = -uy, ny = ux;
+    const center = {
+      x: wall.a.x + dx * opening.t,
+      y: wall.a.y + dy * opening.t,
+    };
+    const half = openingRenderWidth(opening, wall) / 2;
+    if (openingDoorStyle(opening) !== 'double') return [];
+    const swingSide = opening.swing === 'right' ? -1 : 1;
+    const radius = half;
+    const startHinge = { x: center.x - ux * half, y: center.y - uy * half };
+    const endHinge = { x: center.x + ux * half, y: center.y + uy * half };
+    return [
+      {
+        side: 'start', hinge: startHinge, closedEnd: center, radius,
+        swingEnd: { x: startHinge.x + nx * radius * swingSide, y: startHinge.y + ny * radius * swingSide },
+        sweep: swingSide > 0 ? 1 : 0,
+      },
+      {
+        side: 'end', hinge: endHinge, closedEnd: center, radius,
+        swingEnd: { x: endHinge.x + nx * radius * swingSide, y: endHinge.y + ny * radius * swingSide },
+        sweep: swingSide > 0 ? 0 : 1,
+      },
+    ];
+  }
+
   function drawOpening(g, w, o, preview) {
     const p = { x: w.a.x + (w.b.x - w.a.x) * o.t, y: w.a.y + (w.b.y - w.a.y) * o.t };
     const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
@@ -2726,7 +2757,31 @@
       stroke: col, 'stroke-width': sw,
       'stroke-linecap': 'round',
     }, attrs)));
-    if (o.type === 'door') {
+    if (o.type === 'door' && openingDoorStyle(o) === 'double') {
+      for (const leaf of doorLeafGeometry(w, o)) {
+        g.appendChild(svgEl('path', {
+          d: 'M ' + leaf.closedEnd.x + ' ' + leaf.closedEnd.y
+            + ' A ' + leaf.radius + ' ' + leaf.radius + ' 0 0 ' + leaf.sweep
+            + ' ' + leaf.swingEnd.x + ' ' + leaf.swingEnd.y,
+          fill: 'none', stroke: col, 'stroke-width': sw2,
+          'stroke-dasharray': preview ? '5 3' : '3 2',
+          opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+          'data-door-swing': leaf.side,
+        }));
+        g.appendChild(svgEl('line', {
+          x1: leaf.hinge.x, y1: leaf.hinge.y,
+          x2: leaf.closedEnd.x, y2: leaf.closedEnd.y,
+          stroke: col, 'stroke-width': sw,
+          opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+          'data-door-leaf': leaf.side,
+        }));
+        g.appendChild(svgEl('circle', {
+          cx: leaf.hinge.x, cy: leaf.hinge.y, r: state._fs(1.6),
+          fill: col, 'pointer-events': 'none',
+          'data-door-hinge': leaf.side,
+        }));
+      }
+    } else if (o.type === 'door') {
       const arcR = 2 * half;
       // Arc starts at the leaf end, curves to (hinge + perpendicular * arcR).
       // Direction flag depends on swing AND mirror: mirror flips the perpendicular sense.
@@ -2736,12 +2791,12 @@
       const sweep = o.swing === 'right' ? 1 : 0;
       g.appendChild(svgEl('path', {
         d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY,
-        fill: 'none', stroke: col, 'stroke-width': sw2, 'stroke-dasharray': preview ? '5 3' : '3 2', opacity: preview ? '0.78' : '1', 'pointer-events': 'none',
+        fill: 'none', stroke: col, 'stroke-width': sw2, 'stroke-dasharray': preview ? '5 3' : '3 2', opacity: preview ? '0.78' : '1', 'pointer-events': 'none', 'data-door-swing': 'single',
       }));
       // Door panel (closed position) — solid line from hinge to leaf.
-      g.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': sw, opacity: preview ? '0.78' : '1', 'pointer-events': 'none' }));
+      g.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': sw, opacity: preview ? '0.78' : '1', 'pointer-events': 'none', 'data-door-leaf': 'single' }));
       // Hinge dot so the user can see which side is hinged.
-      g.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: state._fs(1.6), fill: col, 'pointer-events': 'none' }));
+      g.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: state._fs(1.6), fill: col, 'pointer-events': 'none', 'data-door-hinge': 'single' }));
     } else {
       // Window: opening line + two thin parallel glazing lines on each side of the wall.
       const off = state._fs(3);
@@ -5760,14 +5815,33 @@
       const leafEndY = p.y + (mirror ? -uy * half : uy * half);
       const col = o.type === 'door' ? '#2266dd' : '#1a8a4a';
       svgOut.appendChild(svgEl('line', { x1: p.x - ux * half, y1: p.y - uy * half, x2: p.x + ux * half, y2: p.y + uy * half, stroke: col, 'stroke-width': mm(0.4) }));
-      if (o.type === 'door') {
+      if (o.type === 'door' && openingDoorStyle(o) === 'double') {
+        for (const leaf of doorLeafGeometry(w, o)) {
+          svgOut.appendChild(svgEl('path', {
+            d: 'M ' + leaf.closedEnd.x + ' ' + leaf.closedEnd.y
+              + ' A ' + leaf.radius + ' ' + leaf.radius + ' 0 0 ' + leaf.sweep
+              + ' ' + leaf.swingEnd.x + ' ' + leaf.swingEnd.y,
+            fill: 'none', stroke: col, 'stroke-width': mm(0.25),
+            'stroke-dasharray': '0.8 0.6', 'data-door-swing': leaf.side,
+          }));
+          svgOut.appendChild(svgEl('line', {
+            x1: leaf.hinge.x, y1: leaf.hinge.y,
+            x2: leaf.closedEnd.x, y2: leaf.closedEnd.y,
+            stroke: col, 'stroke-width': mm(0.4), 'data-door-leaf': leaf.side,
+          }));
+          svgOut.appendChild(svgEl('circle', {
+            cx: leaf.hinge.x, cy: leaf.hinge.y, r: mm(0.45),
+            fill: col, 'data-door-hinge': leaf.side,
+          }));
+        }
+      } else if (o.type === 'door') {
         const arcR = 2 * half;
         const mirrorSign = mirror ? -1 : 1;
         const endX = hingeX + nx * arcR * mirrorSign, endY = hingeY + ny * arcR * mirrorSign;
         const sweep = o.swing === 'right' ? 1 : 0;
-        svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6' }));
-        svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4) }));
-        svgOut.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: mm(0.45), fill: col }));
+        svgOut.appendChild(svgEl('path', { d: 'M ' + leafEndX + ' ' + leafEndY + ' A ' + arcR + ' ' + arcR + ' 0 0 ' + sweep + ' ' + endX + ' ' + endY, fill: 'none', stroke: col, 'stroke-width': mm(0.25), 'stroke-dasharray': '0.8 0.6', 'data-door-swing': 'single' }));
+        svgOut.appendChild(svgEl('line', { x1: hingeX, y1: hingeY, x2: leafEndX, y2: leafEndY, stroke: col, 'stroke-width': mm(0.4), 'data-door-leaf': 'single' }));
+        svgOut.appendChild(svgEl('circle', { cx: hingeX, cy: hingeY, r: mm(0.45), fill: col, 'data-door-hinge': 'single' }));
       } else {
         const off = 6;
         svgOut.appendChild(svgEl('line', { x1: p.x - ux * half + nx * off, y1: p.y - uy * half + ny * off, x2: p.x + ux * half + nx * off, y2: p.y + uy * half + ny * off, stroke: col, 'stroke-width': mm(0.3) }));
@@ -6845,7 +6919,7 @@
     state, lengthCm, formatLength, formatArea, openingWidth, snapCm, pointToSegment,
     lineLineIntersect, polylineArea, polylineCentroid, pointInPoly,
     findWallFaces, findRoomFaceAt, findWallsByLength, addWall, removeWall, addRoom, addMarkedRoom, removeRoom, addOpening, removeOpening, addStair, removeStair, addGuide, removeGuide,
-    constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, drawOpening,
+    constrainFor, orthogonalCornerPoint, openingPlacementForPointer, clearLengthMatchHints, applySelectedDimensions, doorLeafGeometry, drawOpening,
     snapshot, undo, redo, saveJson, loadJson, render, zoomFit, setTool, copySelection, pasteClipboard,
     buildPrintSvg, autoShrink, boundingBox, printPageSpec, exportLabel, printScaleModeLabel,
     createCarpentryExportData, validateCarpentryExportability, carpentryExportFileName, downloadCarpentryExport,
